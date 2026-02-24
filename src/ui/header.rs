@@ -24,11 +24,9 @@ impl<'a> Widget for Header<'a> {
             Style::default().fg(Color::Cyan).bg(Color::DarkGray),
         );
 
-        let spacer_len = area
-            .width
-            .saturating_sub(
-                title.width() as u16 + graph.width() as u16 + self.date.len() as u16 + 1,
-            );
+        let spacer_len = area.width.saturating_sub(
+            title.width() as u16 + graph.width() as u16 + self.date.len() as u16 + 1,
+        );
         let bg = Style::default().bg(Color::DarkGray);
         let spacer = Span::styled(" ".repeat(spacer_len as usize), bg);
 
@@ -58,7 +56,14 @@ mod tests {
         header.render(area, &mut buf);
 
         let content: String = (0..area.width)
-            .map(|x| buf.cell((x, 0)).unwrap().symbol().chars().next().unwrap_or(' '))
+            .map(|x| {
+                buf.cell((x, 0))
+                    .unwrap()
+                    .symbol()
+                    .chars()
+                    .next()
+                    .unwrap_or(' ')
+            })
             .collect();
 
         assert!(content.contains("roam-tui"));
@@ -79,7 +84,14 @@ mod tests {
 
         // Should not panic and fill the single line
         let content: String = (0..area.width)
-            .map(|x| buf.cell((x, 0)).unwrap().symbol().chars().next().unwrap_or(' '))
+            .map(|x| {
+                buf.cell((x, 0))
+                    .unwrap()
+                    .symbol()
+                    .chars()
+                    .next()
+                    .unwrap_or(' ')
+            })
             .collect();
         assert!(content.contains("roam-tui"));
     }

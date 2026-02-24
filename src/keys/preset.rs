@@ -197,26 +197,11 @@ mod tests {
 
     fn has_essential_actions(preset: &HashMap<KeyEvent, Action>) {
         let actions: Vec<&Action> = preset.values().collect();
-        assert!(
-            actions.contains(&&Action::MoveUp),
-            "Missing MoveUp"
-        );
-        assert!(
-            actions.contains(&&Action::MoveDown),
-            "Missing MoveDown"
-        );
-        assert!(
-            actions.contains(&&Action::EditBlock),
-            "Missing EditBlock"
-        );
-        assert!(
-            actions.contains(&&Action::Quit),
-            "Missing Quit"
-        );
-        assert!(
-            actions.contains(&&Action::Search),
-            "Missing Search"
-        );
+        assert!(actions.contains(&&Action::MoveUp), "Missing MoveUp");
+        assert!(actions.contains(&&Action::MoveDown), "Missing MoveDown");
+        assert!(actions.contains(&&Action::EditBlock), "Missing EditBlock");
+        assert!(actions.contains(&&Action::Quit), "Missing Quit");
+        assert!(actions.contains(&&Action::Search), "Missing Search");
     }
 
     #[test]
@@ -246,41 +231,26 @@ mod tests {
     #[test]
     fn vim_k_maps_to_move_up() {
         let preset = vim_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::Char('k'))),
-            Some(&Action::MoveUp)
-        );
+        assert_eq!(preset.get(&key(KeyCode::Char('k'))), Some(&Action::MoveUp));
     }
 
     #[test]
     fn vim_q_maps_to_quit() {
         let preset = vim_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::Char('q'))),
-            Some(&Action::Quit)
-        );
+        assert_eq!(preset.get(&key(KeyCode::Char('q'))), Some(&Action::Quit));
     }
 
     #[test]
     fn emacs_ctrl_p_maps_to_move_up() {
         let preset = emacs_preset();
-        assert_eq!(
-            preset.get(&ctrl(KeyCode::Char('p'))),
-            Some(&Action::MoveUp)
-        );
+        assert_eq!(preset.get(&ctrl(KeyCode::Char('p'))), Some(&Action::MoveUp));
     }
 
     #[test]
     fn vscode_arrows_for_navigation() {
         let preset = vscode_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::Up)),
-            Some(&Action::MoveUp)
-        );
-        assert_eq!(
-            preset.get(&key(KeyCode::Down)),
-            Some(&Action::MoveDown)
-        );
+        assert_eq!(preset.get(&key(KeyCode::Up)), Some(&Action::MoveUp));
+        assert_eq!(preset.get(&key(KeyCode::Down)), Some(&Action::MoveDown));
     }
 
     #[test]
@@ -346,10 +316,7 @@ mod tests {
     #[test]
     fn vim_u_maps_to_undo() {
         let preset = vim_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::Char('u'))),
-            Some(&Action::Undo)
-        );
+        assert_eq!(preset.get(&key(KeyCode::Char('u'))), Some(&Action::Undo));
     }
 
     #[test]
@@ -360,72 +327,48 @@ mod tests {
     #[test]
     fn vscode_ctrl_z_maps_to_undo() {
         let preset = vscode_preset();
-        assert_eq!(
-            preset.get(&ctrl(KeyCode::Char('z'))),
-            Some(&Action::Undo)
-        );
+        assert_eq!(preset.get(&ctrl(KeyCode::Char('z'))), Some(&Action::Undo));
     }
 
     #[test]
     fn emacs_ctrl_slash_maps_to_undo() {
         let preset = emacs_preset();
-        assert_eq!(
-            preset.get(&ctrl(KeyCode::Char('/'))),
-            Some(&Action::Undo)
-        );
+        assert_eq!(preset.get(&ctrl(KeyCode::Char('/'))), Some(&Action::Undo));
     }
 
     #[test]
     fn vim_pagedown_maps_to_next_day() {
         let preset = vim_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::PageDown)),
-            Some(&Action::NextDay)
-        );
+        assert_eq!(preset.get(&key(KeyCode::PageDown)), Some(&Action::NextDay));
     }
 
     #[test]
     fn vim_pageup_maps_to_prev_day() {
         let preset = vim_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::PageUp)),
-            Some(&Action::PrevDay)
-        );
+        assert_eq!(preset.get(&key(KeyCode::PageUp)), Some(&Action::PrevDay));
     }
 
     #[test]
     fn emacs_pagedown_maps_to_next_day() {
         let preset = emacs_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::PageDown)),
-            Some(&Action::NextDay)
-        );
+        assert_eq!(preset.get(&key(KeyCode::PageDown)), Some(&Action::NextDay));
     }
 
     #[test]
     fn emacs_pageup_maps_to_prev_day() {
         let preset = emacs_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::PageUp)),
-            Some(&Action::PrevDay)
-        );
+        assert_eq!(preset.get(&key(KeyCode::PageUp)), Some(&Action::PrevDay));
     }
 
     #[test]
     fn vscode_pagedown_maps_to_next_day() {
         let preset = vscode_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::PageDown)),
-            Some(&Action::NextDay)
-        );
+        assert_eq!(preset.get(&key(KeyCode::PageDown)), Some(&Action::NextDay));
     }
 
     #[test]
     fn vscode_pageup_maps_to_prev_day() {
         let preset = vscode_preset();
-        assert_eq!(
-            preset.get(&key(KeyCode::PageUp)),
-            Some(&Action::PrevDay)
-        );
+        assert_eq!(preset.get(&key(KeyCode::PageUp)), Some(&Action::PrevDay));
     }
 }

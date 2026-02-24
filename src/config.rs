@@ -91,9 +91,7 @@ impl AppConfig {
 
     pub fn validate(&self) -> Result<()> {
         if self.graph.name.is_empty() {
-            return Err(RoamError::Config(
-                "graph.name is required".into(),
-            ));
+            return Err(RoamError::Config("graph.name is required".into()));
         }
         if self.graph.api_token.is_empty() {
             return Err(RoamError::Config(

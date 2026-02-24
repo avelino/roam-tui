@@ -26,9 +26,8 @@ pub fn parse_key(input: &str) -> Result<KeyEvent> {
         }
     }
 
-    let key_str = key_part.ok_or_else(|| {
-        RoamError::Config(format!("No key code found in '{}'", input))
-    })?;
+    let key_str =
+        key_part.ok_or_else(|| RoamError::Config(format!("No key code found in '{}'", input)))?;
 
     let code = parse_key_code(key_str)?;
 
@@ -102,10 +101,7 @@ mod tests {
     fn parse_ctrl_shift_combo() {
         let key = parse_key("Ctrl+Shift+k").unwrap();
         assert_eq!(key.code, KeyCode::Char('k'));
-        assert_eq!(
-            key.modifiers,
-            KeyModifiers::CONTROL | KeyModifiers::SHIFT
-        );
+        assert_eq!(key.modifiers, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
     }
 
     #[test]
@@ -169,9 +165,6 @@ mod tests {
     fn parse_case_insensitive_modifiers() {
         let key = parse_key("ctrl+shift+k").unwrap();
         assert_eq!(key.code, KeyCode::Char('k'));
-        assert_eq!(
-            key.modifiers,
-            KeyModifiers::CONTROL | KeyModifiers::SHIFT
-        );
+        assert_eq!(key.modifiers, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
     }
 }

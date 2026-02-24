@@ -42,7 +42,7 @@ impl<'a> Widget for StatusBar<'a> {
                 Style::default().fg(Color::Cyan),
             ));
             spans.push(Span::styled(
-                format!("{}", action),
+                action.to_string(),
                 Style::default()
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::DIM),
@@ -63,10 +63,7 @@ mod tests {
         let area = Rect::new(0, 0, 60, 1);
         let mut buf = Buffer::empty(area);
 
-        let hints = vec![
-            ("q".to_string(), "quit"),
-            ("/".to_string(), "search"),
-        ];
+        let hints = vec![("q".to_string(), "quit"), ("/".to_string(), "search")];
         let bar = StatusBar {
             hints: &hints,
             message: None,
@@ -75,7 +72,14 @@ mod tests {
         bar.render(area, &mut buf);
 
         let content: String = (0..area.width)
-            .map(|x| buf.cell((x, 0)).unwrap().symbol().chars().next().unwrap_or(' '))
+            .map(|x| {
+                buf.cell((x, 0))
+                    .unwrap()
+                    .symbol()
+                    .chars()
+                    .next()
+                    .unwrap_or(' ')
+            })
             .collect();
 
         assert!(content.contains("[q]"));
@@ -98,7 +102,14 @@ mod tests {
         bar.render(area, &mut buf);
 
         let content: String = (0..area.width)
-            .map(|x| buf.cell((x, 0)).unwrap().symbol().chars().next().unwrap_or(' '))
+            .map(|x| {
+                buf.cell((x, 0))
+                    .unwrap()
+                    .symbol()
+                    .chars()
+                    .next()
+                    .unwrap_or(' ')
+            })
             .collect();
 
         assert!(content.contains("Loading pages..."));
@@ -118,7 +129,14 @@ mod tests {
         bar.render(area, &mut buf);
 
         let content: String = (0..area.width)
-            .map(|x| buf.cell((x, 0)).unwrap().symbol().chars().next().unwrap_or(' '))
+            .map(|x| {
+                buf.cell((x, 0))
+                    .unwrap()
+                    .symbol()
+                    .chars()
+                    .next()
+                    .unwrap_or(' ')
+            })
             .collect();
 
         assert!(content.contains("INSERT"));

@@ -27,10 +27,28 @@ pub struct EditInfo<'a> {
 enum VisibleLine {
     DayHeading(String),
     DaySeparator,
-    Block { depth: usize, text: String, block_index: usize, collapsed_children: usize },
-    CodeLabel { depth: usize, spans: Vec<Span<'static>>, block_index: usize },
-    CodeLine { depth: usize, spans: Vec<Span<'static>>, block_index: usize, line_number: usize },
-    Blockquote { depth: usize, text: String, block_index: usize },
+    Block {
+        depth: usize,
+        text: String,
+        block_index: usize,
+        collapsed_children: usize,
+    },
+    CodeLabel {
+        depth: usize,
+        spans: Vec<Span<'static>>,
+        block_index: usize,
+    },
+    CodeLine {
+        depth: usize,
+        spans: Vec<Span<'static>>,
+        block_index: usize,
+        line_number: usize,
+    },
+    Blockquote {
+        depth: usize,
+        text: String,
+        block_index: usize,
+    },
     LoadingMore,
 }
 
@@ -269,7 +287,11 @@ impl<'a> Widget for MainArea<'a> {
 
         let mut highlighter = CodeHighlighter::new();
         let mut block_map = markdown::build_block_text_map(self.days);
-        block_map.extend(self.block_ref_cache.iter().map(|(k, v)| (k.clone(), v.clone())));
+        block_map.extend(
+            self.block_ref_cache
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
         let visible_lines = build_visible_lines(self.days, self.loading_more, &mut highlighter);
         let max_width = area.width as usize;
 
@@ -297,7 +319,12 @@ impl<'a> Widget for MainArea<'a> {
                             .add_modifier(Modifier::DIM),
                     ));
                 }
-                VisibleLine::Block { depth, text, block_index, collapsed_children } => {
+                VisibleLine::Block {
+                    depth,
+                    text,
+                    block_index,
+                    collapsed_children,
+                } => {
                     let indent = "  ".repeat(depth + 1);
                     let is_selected = *block_index == self.selected_block;
 
@@ -348,7 +375,8 @@ impl<'a> Widget for MainArea<'a> {
                             if line_idx == cursor_line {
                                 let line_chars: Vec<char> = text_line.chars().collect();
                                 let before: String = line_chars[..cursor_col].iter().collect();
-                                let cursor_char = line_chars.get(cursor_col).copied().unwrap_or(' ');
+                                let cursor_char =
+                                    line_chars.get(cursor_col).copied().unwrap_or(' ');
                                 let after: String = if cursor_col < line_chars.len() {
                                     line_chars[cursor_col + 1..].iter().collect()
                                 } else {
@@ -373,9 +401,7 @@ impl<'a> Widget for MainArea<'a> {
                         selected_row = edit_start_row + cursor_line;
                     } else {
                         let mut style = if is_selected {
-                            Style::default()
-                                .fg(Color::White)
-                                .bg(Color::DarkGray)
+                            Style::default().fg(Color::White).bg(Color::DarkGray)
                         } else {
                             Style::default().fg(Color::Gray)
                         };
@@ -385,16 +411,27 @@ impl<'a> Widget for MainArea<'a> {
                             style = style.add_modifier(Modifier::DIM);
                         }
 
-                        let bullet = if *collapsed_children > 0 { "▸" } else { "•" };
+                        let bullet = if *collapsed_children > 0 {
+                            "▸"
+                        } else {
+                            "•"
+                        };
                         let bullet_style = if *collapsed_children > 0 {
-                            Style::default().fg(Color::Cyan).bg(if is_selected { Color::DarkGray } else { Color::Reset })
+                            Style::default().fg(Color::Cyan).bg(if is_selected {
+                                Color::DarkGray
+                            } else {
+                                Color::Reset
+                            })
                         } else {
                             style
                         };
 
                         // Selection indicator: replace first 2 chars of indent with "▎ "
                         let selection_indicator = if is_selected && indent.len() >= 2 {
-                            Some(Span::styled("▎", Style::default().fg(Color::Cyan).bg(Color::DarkGray)))
+                            Some(Span::styled(
+                                "▎",
+                                Style::default().fg(Color::Cyan).bg(Color::DarkGray),
+                            ))
                         } else {
                             None
                         };
@@ -414,21 +451,26 @@ impl<'a> Widget for MainArea<'a> {
                         let mut is_first_row = true;
 
                         for text_line in text.split('\n') {
-                            let line_spans = markdown::render_spans_with_refs(text_line, style, Some(&block_map));
+                            let line_spans = markdown::render_spans_with_refs(
+                                text_line,
+                                style,
+                                Some(&block_map),
+                            );
                             let w = if is_first_row { first_w } else { cont_w };
                             let wrapped = wrap_spans(line_spans, w, cont_w);
                             for (wrap_idx, wline) in wrapped.into_iter().enumerate() {
-                                let mut full_spans: Vec<Span<'static>> = if is_first_row && wrap_idx == 0 {
-                                    let mut v: Vec<Span<'static>> = Vec::new();
-                                    if let Some(ref ind) = selection_indicator {
-                                        v.push(ind.clone());
-                                    }
-                                    v.push(Span::styled(prefix_indent.clone(), style));
-                                    v.push(Span::styled(format!("{} ", bullet), bullet_style));
-                                    v
-                                } else {
-                                    vec![Span::styled(cont_prefix.clone(), style)]
-                                };
+                                let mut full_spans: Vec<Span<'static>> =
+                                    if is_first_row && wrap_idx == 0 {
+                                        let mut v: Vec<Span<'static>> = Vec::new();
+                                        if let Some(ref ind) = selection_indicator {
+                                            v.push(ind.clone());
+                                        }
+                                        v.push(Span::styled(prefix_indent.clone(), style));
+                                        v.push(Span::styled(format!("{} ", bullet), bullet_style));
+                                        v
+                                    } else {
+                                        vec![Span::styled(cont_prefix.clone(), style)]
+                                    };
                                 full_spans.extend(wline);
 
                                 // Append collapsed children count on first row
@@ -445,7 +487,11 @@ impl<'a> Widget for MainArea<'a> {
                         }
                     }
                 }
-                VisibleLine::Blockquote { depth, text, block_index } => {
+                VisibleLine::Blockquote {
+                    depth,
+                    text,
+                    block_index,
+                } => {
                     let indent = "  ".repeat(depth + 1);
                     let is_selected = *block_index == self.selected_block;
 
@@ -472,7 +518,11 @@ impl<'a> Widget for MainArea<'a> {
                     let text_w = max_width.saturating_sub(prefix_width);
 
                     for text_line in text.split('\n') {
-                        let line_spans = markdown::render_spans_with_refs(text_line, text_style, Some(&block_map));
+                        let line_spans = markdown::render_spans_with_refs(
+                            text_line,
+                            text_style,
+                            Some(&block_map),
+                        );
                         let wrapped = wrap_spans(line_spans, text_w, text_w);
                         for wline in wrapped {
                             let mut full_spans = vec![
@@ -484,12 +534,24 @@ impl<'a> Widget for MainArea<'a> {
                         }
                     }
                 }
-                VisibleLine::CodeLabel { depth, spans, block_index }
-                | VisibleLine::CodeLine { depth, spans, block_index, .. } => {
+                VisibleLine::CodeLabel {
+                    depth,
+                    spans,
+                    block_index,
+                }
+                | VisibleLine::CodeLine {
+                    depth,
+                    spans,
+                    block_index,
+                    ..
+                } => {
                     let indent = "  ".repeat(depth + 1);
                     let is_selected = *block_index == self.selected_block;
 
-                    if !found_selected && is_selected && matches!(vline, VisibleLine::CodeLabel { .. }) {
+                    if !found_selected
+                        && is_selected
+                        && matches!(vline, VisibleLine::CodeLabel { .. })
+                    {
                         selected_row = rows.len();
                         found_selected = true;
                     }
@@ -500,17 +562,11 @@ impl<'a> Widget for MainArea<'a> {
                         Style::default()
                     };
 
-                    let mut line_spans = vec![Span::styled(
-                        format!("{}  ", indent),
-                        indent_style,
-                    )];
+                    let mut line_spans = vec![Span::styled(format!("{}  ", indent), indent_style)];
 
                     if let VisibleLine::CodeLine { line_number, .. } = vline {
                         let gutter_style = Style::default().fg(Color::Gray).bg(Color::DarkGray);
-                        line_spans.push(Span::styled(
-                            format!("{:>3} ", line_number),
-                            gutter_style,
-                        ));
+                        line_spans.push(Span::styled(format!("{:>3} ", line_number), gutter_style));
                     }
 
                     line_spans.extend(spans.iter().cloned());
@@ -569,7 +625,14 @@ mod tests {
 
     fn read_line(buf: &Buffer, y: u16, width: u16) -> String {
         (0..width)
-            .map(|x| buf.cell((x, y)).unwrap().symbol().chars().next().unwrap_or(' '))
+            .map(|x| {
+                buf.cell((x, y))
+                    .unwrap()
+                    .symbol()
+                    .chars()
+                    .next()
+                    .unwrap_or(' ')
+            })
             .collect()
     }
 
@@ -583,7 +646,13 @@ mod tests {
         }
     }
 
-    fn make_daily_note(title: &str, year: i32, month: u32, day: u32, blocks: Vec<Block>) -> DailyNote {
+    fn make_daily_note(
+        title: &str,
+        year: i32,
+        month: u32,
+        day: u32,
+        blocks: Vec<Block>,
+    ) -> DailyNote {
         DailyNote {
             date: NaiveDate::from_ymd_opt(year, month, day).unwrap(),
             uid: format!("{:02}-{:02}-{}", month, day, year),
@@ -596,7 +665,9 @@ mod tests {
     fn build_visible_lines_single_day() {
         let day = make_daily_note(
             "February 21, 2026",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "Hello", 0), make_block("b2", "World", 1)],
         );
         let mut hl = CodeHighlighter::new();
@@ -604,8 +675,12 @@ mod tests {
 
         assert_eq!(lines.len(), 3); // heading + 2 blocks
         assert!(matches!(&lines[0], VisibleLine::DayHeading(t) if t == "February 21, 2026"));
-        assert!(matches!(&lines[1], VisibleLine::Block { block_index: 0, text, .. } if text == "Hello"));
-        assert!(matches!(&lines[2], VisibleLine::Block { block_index: 1, text, .. } if text == "World"));
+        assert!(
+            matches!(&lines[1], VisibleLine::Block { block_index: 0, text, .. } if text == "Hello")
+        );
+        assert!(
+            matches!(&lines[2], VisibleLine::Block { block_index: 1, text, .. } if text == "World")
+        );
     }
 
     #[test]
@@ -622,8 +697,22 @@ mod tests {
         let lines = build_visible_lines(&[day], false, &mut hl);
 
         assert_eq!(lines.len(), 3); // heading + parent + child
-        assert!(matches!(&lines[1], VisibleLine::Block { depth: 0, block_index: 0, .. }));
-        assert!(matches!(&lines[2], VisibleLine::Block { depth: 1, block_index: 1, .. }));
+        assert!(matches!(
+            &lines[1],
+            VisibleLine::Block {
+                depth: 0,
+                block_index: 0,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &lines[2],
+            VisibleLine::Block {
+                depth: 1,
+                block_index: 1,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -693,8 +782,13 @@ mod tests {
 
         let day = make_daily_note(
             "February 21, 2026",
-            2026, 2, 21,
-            vec![make_block("b1", "Block one", 0), make_block("b2", "Block two", 1)],
+            2026,
+            2,
+            21,
+            vec![
+                make_block("b1", "Block one", 0),
+                make_block("b2", "Block two", 1),
+            ],
         );
 
         let widget = MainArea {
@@ -718,7 +812,9 @@ mod tests {
 
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "First", 0), make_block("b2", "Second", 1)],
         );
 
@@ -774,35 +870,43 @@ mod tests {
         let code_text = "```\nrust\nfn main() {}\nlet x = 1;```";
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("c1", code_text, 0), make_block("b2", "After", 1)],
         );
         let mut hl = CodeHighlighter::new();
         let lines = build_visible_lines(&[day], false, &mut hl);
 
         // heading + lang label + 2 code lines + "After" block = 5
-        let code_line_count = lines.iter().filter(|l| matches!(l, VisibleLine::CodeLine { .. })).count();
-        assert!(code_line_count >= 2, "Expected at least 2 code lines, got {}", code_line_count);
+        let code_line_count = lines
+            .iter()
+            .filter(|l| matches!(l, VisibleLine::CodeLine { .. }))
+            .count();
+        assert!(
+            code_line_count >= 2,
+            "Expected at least 2 code lines, got {}",
+            code_line_count
+        );
 
         // "After" block should still be there
-        let has_after = lines.iter().any(|l| matches!(l, VisibleLine::Block { text, .. } if text == "After"));
+        let has_after = lines
+            .iter()
+            .any(|l| matches!(l, VisibleLine::Block { text, .. } if text == "After"));
         assert!(has_after, "Expected 'After' block in visible lines");
     }
 
     #[test]
     fn code_lines_have_line_numbers() {
         let code_text = "```\nrust\nfn main() {}\nlet x = 1;```";
-        let day = make_daily_note(
-            "Feb 21",
-            2026, 2, 21,
-            vec![make_block("c1", code_text, 0)],
-        );
+        let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("c1", code_text, 0)]);
         let mut hl = CodeHighlighter::new();
         let lines = build_visible_lines(&[day], false, &mut hl);
 
-        let code_lines: Vec<_> = lines.iter().filter(|l| {
-            matches!(l, VisibleLine::CodeLine { .. })
-        }).collect();
+        let code_lines: Vec<_> = lines
+            .iter()
+            .filter(|l| matches!(l, VisibleLine::CodeLine { .. }))
+            .collect();
 
         assert!(code_lines.len() >= 2);
         if let VisibleLine::CodeLine { line_number, .. } = &code_lines[0] {
@@ -816,16 +920,17 @@ mod tests {
     #[test]
     fn code_label_is_separate_variant() {
         let code_text = "```\nrust\nfn main() {}```";
-        let day = make_daily_note(
-            "Feb 21",
-            2026, 2, 21,
-            vec![make_block("c1", code_text, 0)],
-        );
+        let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("c1", code_text, 0)]);
         let mut hl = CodeHighlighter::new();
         let lines = build_visible_lines(&[day], false, &mut hl);
 
-        let label = lines.iter().find(|l| matches!(l, VisibleLine::CodeLabel { .. }));
-        assert!(label.is_some(), "Expected a CodeLabel variant for the language label");
+        let label = lines
+            .iter()
+            .find(|l| matches!(l, VisibleLine::CodeLabel { .. }));
+        assert!(
+            label.is_some(),
+            "Expected a CodeLabel variant for the language label"
+        );
     }
 
     #[test]
@@ -834,11 +939,7 @@ mod tests {
         let mut buf = Buffer::empty(area);
 
         let code_text = "```\nrust\nfn main() {}\nlet x = 1;```";
-        let day = make_daily_note(
-            "Feb 21",
-            2026, 2, 21,
-            vec![make_block("c1", code_text, 0)],
-        );
+        let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("c1", code_text, 0)]);
 
         let widget = MainArea {
             days: &[day],
@@ -854,9 +955,17 @@ mod tests {
         // Line 3 should contain "2"
         let line2 = read_line(&buf, 2, area.width);
         let line3 = read_line(&buf, 3, area.width);
-        assert!(line2.contains('1'), "Expected line number '1' in '{}'", line2);
+        assert!(
+            line2.contains('1'),
+            "Expected line number '1' in '{}'",
+            line2
+        );
         assert!(line2.contains("fn"), "Expected code content in '{}'", line2);
-        assert!(line3.contains('2'), "Expected line number '2' in '{}'", line3);
+        assert!(
+            line3.contains('2'),
+            "Expected line number '2' in '{}'",
+            line3
+        );
     }
 
     #[test]
@@ -866,7 +975,9 @@ mod tests {
 
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "**bold text**", 0)],
         );
 
@@ -882,8 +993,16 @@ mod tests {
 
         // The rendered line should contain "bold text" (without **)
         let line1 = read_line(&buf, 1, area.width);
-        assert!(line1.contains("bold text"), "Expected 'bold text', got: '{}'", line1);
-        assert!(!line1.contains("**"), "Should not contain ** delimiters, got: '{}'", line1);
+        assert!(
+            line1.contains("bold text"),
+            "Expected 'bold text', got: '{}'",
+            line1
+        );
+        assert!(
+            !line1.contains("**"),
+            "Should not contain ** delimiters, got: '{}'",
+            line1
+        );
     }
 
     #[test]
@@ -893,7 +1012,9 @@ mod tests {
 
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "See [[my page]]", 0)],
         );
 
@@ -907,14 +1028,19 @@ mod tests {
         };
         widget.render(area, &mut buf);
 
-        assert!(read_line(&buf, 1, area.width).contains("my page"), "Expected 'my page'");
+        assert!(
+            read_line(&buf, 1, area.width).contains("my page"),
+            "Expected 'my page'"
+        );
     }
 
     #[test]
     fn blockquote_detected_in_visible_lines() {
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "> quoted text", 0)],
         );
         let mut hl = CodeHighlighter::new();
@@ -930,14 +1056,20 @@ mod tests {
     fn blockquote_strips_prefix() {
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "> hello world", 0)],
         );
         let mut hl = CodeHighlighter::new();
         let lines = build_visible_lines(&[day], false, &mut hl);
 
         if let VisibleLine::Blockquote { text, .. } = &lines[1] {
-            assert!(!text.starts_with("> "), "Text should not contain '> ' prefix, got: '{}'", text);
+            assert!(
+                !text.starts_with("> "),
+                "Text should not contain '> ' prefix, got: '{}'",
+                text
+            );
             assert_eq!(text, "hello world");
         } else {
             panic!("Expected Blockquote variant, got: {:?}", &lines[1]);
@@ -970,7 +1102,9 @@ mod tests {
 
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "> quoted text", 0)],
         );
 
@@ -985,8 +1119,16 @@ mod tests {
         widget.render(area, &mut buf);
 
         let line1 = read_line(&buf, 1, area.width);
-        assert!(line1.contains('│'), "Expected '│' border in blockquote, got: '{}'", line1);
-        assert!(line1.contains("quoted text"), "Expected 'quoted text', got: '{}'", line1);
+        assert!(
+            line1.contains('│'),
+            "Expected '│' border in blockquote, got: '{}'",
+            line1
+        );
+        assert!(
+            line1.contains("quoted text"),
+            "Expected 'quoted text', got: '{}'",
+            line1
+        );
     }
 
     #[test]
@@ -996,7 +1138,9 @@ mod tests {
 
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "> **bold** and [[link]]", 0)],
         );
 
@@ -1011,16 +1155,30 @@ mod tests {
         widget.render(area, &mut buf);
 
         let line1 = read_line(&buf, 1, area.width);
-        assert!(line1.contains("bold"), "Expected 'bold' in blockquote, got: '{}'", line1);
-        assert!(line1.contains("link"), "Expected 'link' in blockquote, got: '{}'", line1);
-        assert!(!line1.contains("**"), "Should not contain ** delimiters, got: '{}'", line1);
+        assert!(
+            line1.contains("bold"),
+            "Expected 'bold' in blockquote, got: '{}'",
+            line1
+        );
+        assert!(
+            line1.contains("link"),
+            "Expected 'link' in blockquote, got: '{}'",
+            line1
+        );
+        assert!(
+            !line1.contains("**"),
+            "Should not contain ** delimiters, got: '{}'",
+            line1
+        );
     }
 
     #[test]
     fn regular_block_not_affected_by_blockquote() {
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![
                 make_block("b1", "normal text", 0),
                 make_block("b2", "> quoted", 1),
@@ -1042,7 +1200,9 @@ mod tests {
 
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "{{TODO}} buy milk", 0)],
         );
 
@@ -1056,7 +1216,10 @@ mod tests {
         };
         widget.render(area, &mut buf);
 
-        assert!(read_line(&buf, 1, area.width).contains("buy milk"), "Expected 'buy milk'");
+        assert!(
+            read_line(&buf, 1, area.width).contains("buy milk"),
+            "Expected 'buy milk'"
+        );
     }
 
     // --- wrap_spans tests ---
@@ -1128,7 +1291,11 @@ mod tests {
         assert_eq!(result.len(), 2);
         // First line fits within 15 chars
         let line1 = collect_line_text(&result[0]);
-        assert!(line1.len() <= 15, "Line 1 '{}' exceeds first_width 15", line1);
+        assert!(
+            line1.len() <= 15,
+            "Line 1 '{}' exceeds first_width 15",
+            line1
+        );
         // Second line fits within 8 chars
         let line2 = collect_line_text(&result[1]);
         assert!(line2.len() <= 8, "Line 2 '{}' exceeds cont_width 8", line2);
@@ -1147,11 +1314,7 @@ mod tests {
         let mut buf = Buffer::empty(area);
 
         let text = "First paragraph\n\nSecond paragraph";
-        let day = make_daily_note(
-            "Feb 21",
-            2026, 2, 21,
-            vec![make_block("b1", text, 0)],
-        );
+        let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("b1", text, 0)]);
 
         let widget = MainArea {
             days: &[day],
@@ -1172,9 +1335,17 @@ mod tests {
         let line3 = read_line(&buf, 3, area.width);
         assert!(line1.contains("First paragraph"), "Row 1: '{}'", line1);
         assert!(line1.contains('•'), "Row 1 should have bullet: '{}'", line1);
-        assert!(!line2.contains("Second"), "Row 2 should be blank separator: '{}'", line2);
+        assert!(
+            !line2.contains("Second"),
+            "Row 2 should be blank separator: '{}'",
+            line2
+        );
         assert!(line3.contains("Second paragraph"), "Row 3: '{}'", line3);
-        assert!(!line3.contains('•'), "Row 3 should not have bullet: '{}'", line3);
+        assert!(
+            !line3.contains('•'),
+            "Row 3 should not have bullet: '{}'",
+            line3
+        );
     }
 
     #[test]
@@ -1185,11 +1356,7 @@ mod tests {
         // "  • " prefix is 4 chars, leaving 26 chars for text
         // This text is ~40 chars, should wrap to 2+ lines
         let long_text = "this is a very long block text that should wrap";
-        let day = make_daily_note(
-            "Feb 21",
-            2026, 2, 21,
-            vec![make_block("b1", long_text, 0)],
-        );
+        let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("b1", long_text, 0)]);
 
         let widget = MainArea {
             days: &[day],
@@ -1206,10 +1373,22 @@ mod tests {
         // Row 2: continuation line (with indent)
         let line1 = read_line(&buf, 1, area.width);
         let line2 = read_line(&buf, 2, area.width);
-        assert!(line1.contains("this"), "Expected first part of text on row 1, got: '{}'", line1);
-        assert!(!line2.trim().is_empty(), "Expected continuation on row 2, got: '{}'", line2);
+        assert!(
+            line1.contains("this"),
+            "Expected first part of text on row 1, got: '{}'",
+            line1
+        );
+        assert!(
+            !line2.trim().is_empty(),
+            "Expected continuation on row 2, got: '{}'",
+            line2
+        );
         // Continuation should NOT have a bullet
-        assert!(!line2.contains('•'), "Continuation line should not have bullet, got: '{}'", line2);
+        assert!(
+            !line2.contains('•'),
+            "Continuation line should not have bullet, got: '{}'",
+            line2
+        );
     }
 
     #[test]
@@ -1227,7 +1406,10 @@ mod tests {
 
         assert!(matches!(
             &lines[1],
-            VisibleLine::Block { collapsed_children: 1, .. }
+            VisibleLine::Block {
+                collapsed_children: 1,
+                ..
+            }
         ));
     }
 
@@ -1260,8 +1442,16 @@ mod tests {
         widget.render(area, &mut buf);
 
         let line1 = read_line(&buf, 1, area.width);
-        assert!(line1.contains("▸"), "Expected '▸' for collapsed block, got: '{}'", line1);
-        assert!(line1.contains("[3]"), "Expected '[3]' children count, got: '{}'", line1);
+        assert!(
+            line1.contains("▸"),
+            "Expected '▸' for collapsed block, got: '{}'",
+            line1
+        );
+        assert!(
+            line1.contains("[3]"),
+            "Expected '[3]' children count, got: '{}'",
+            line1
+        );
     }
 
     #[test]
@@ -1271,7 +1461,9 @@ mod tests {
 
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "Normal block", 0)],
         );
 
@@ -1286,8 +1478,16 @@ mod tests {
         widget.render(area, &mut buf);
 
         let line1 = read_line(&buf, 1, area.width);
-        assert!(line1.contains('•'), "Expected '•' for open block, got: '{}'", line1);
-        assert!(!line1.contains('▸'), "Should not contain '▸' for open block, got: '{}'", line1);
+        assert!(
+            line1.contains('•'),
+            "Expected '•' for open block, got: '{}'",
+            line1
+        );
+        assert!(
+            !line1.contains('▸'),
+            "Should not contain '▸' for open block, got: '{}'",
+            line1
+        );
     }
 
     #[test]
@@ -1313,7 +1513,11 @@ mod tests {
         // Row 2: separator (─ chars)
         // Row 3: Day 2 heading
         let sep_line = read_line(&buf, 2, area.width);
-        assert!(sep_line.contains('─'), "Expected '─' separator between days, got: '{}'", sep_line);
+        assert!(
+            sep_line.contains('─'),
+            "Expected '─' separator between days, got: '{}'",
+            sep_line
+        );
     }
 
     #[test]
@@ -1323,7 +1527,9 @@ mod tests {
 
         let day = make_daily_note(
             "Feb 21",
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "First", 0), make_block("b2", "Second", 1)],
         );
 
@@ -1338,10 +1544,18 @@ mod tests {
         widget.render(area, &mut buf);
 
         let line1 = read_line(&buf, 1, area.width);
-        assert!(line1.contains('▎'), "Expected '▎' selection indicator, got: '{}'", line1);
+        assert!(
+            line1.contains('▎'),
+            "Expected '▎' selection indicator, got: '{}'",
+            line1
+        );
 
         // Non-selected block should NOT have indicator
         let line2 = read_line(&buf, 2, area.width);
-        assert!(!line2.contains('▎'), "Non-selected should not have '▎', got: '{}'", line2);
+        assert!(
+            !line2.contains('▎'),
+            "Non-selected should not have '▎', got: '{}'",
+            line2
+        );
     }
 }

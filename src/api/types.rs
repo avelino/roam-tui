@@ -1,20 +1,6 @@
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
-#[allow(dead_code)]
-#[derive(Debug, Serialize)]
-pub struct QueryRequest {
-    pub query: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub args: Option<Vec<serde_json::Value>>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-pub struct QueryResponse {
-    pub result: Vec<Vec<serde_json::Value>>,
-}
-
 #[derive(Debug, Serialize)]
 pub struct PullRequest {
     #[serde(rename = "eid")]
@@ -25,13 +11,6 @@ pub struct PullRequest {
 #[derive(Debug, Deserialize)]
 pub struct PullResponse {
     pub result: serde_json::Value,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Page {
-    pub title: String,
-    pub uid: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -78,11 +57,6 @@ impl DailyNote {
             blocks,
         }
     }
-
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty()
-    }
 }
 
 fn parse_block_from_json(val: &serde_json::Value) -> Block {
@@ -121,14 +95,9 @@ fn parse_block_from_json(val: &serde_json::Value) -> Block {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Serialize)]
-pub struct WriteRequest {
-    pub action: WriteAction,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(tag = "action")]
+#[allow(clippy::enum_variant_names)]
 pub enum WriteAction {
     #[serde(rename = "create-block")]
     CreateBlock {
@@ -157,7 +126,6 @@ pub struct BlockLocation {
 #[serde(untagged)]
 pub enum OrderValue {
     Index(i64),
-    #[allow(dead_code)]
     Position(String),
 }
 
@@ -187,39 +155,6 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn query_request_serializes_without_args() {
-        let req = QueryRequest {
-            query: "[:find ?title :where [?e :node/title ?title]]".into(),
-            args: None,
-        };
-        let json = serde_json::to_value(&req).unwrap();
-        assert_eq!(
-            json,
-            json!({"query": "[:find ?title :where [?e :node/title ?title]]"})
-        );
-    }
-
-    #[test]
-    fn query_request_serializes_with_args() {
-        let req = QueryRequest {
-            query: "[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]"
-                .into(),
-            args: Some(vec![json!("My Page")]),
-        };
-        let json = serde_json::to_value(&req).unwrap();
-        assert!(json["args"].is_array());
-        assert_eq!(json["args"][0], "My Page");
-    }
-
-    #[test]
-    fn query_response_deserializes() {
-        let raw = r#"{"result": [["Page One"], ["Page Two"]]}"#;
-        let resp: QueryResponse = serde_json::from_str(raw).unwrap();
-        assert_eq!(resp.result.len(), 2);
-        assert_eq!(resp.result[0][0], "Page One");
-    }
-
-    #[test]
     fn pull_request_serializes() {
         let req = PullRequest {
             eid: json!(["block/uid", "abc123"]),
@@ -236,17 +171,6 @@ mod tests {
             r#"{"result": {":block/uid": "abc123", ":block/string": "hello", ":block/order": 0}}"#;
         let resp: PullResponse = serde_json::from_str(raw).unwrap();
         assert_eq!(resp.result[":block/uid"], "abc123");
-    }
-
-    #[test]
-    fn page_serde_roundtrip() {
-        let page = Page {
-            title: "My Page".into(),
-            uid: "abc123".into(),
-        };
-        let json = serde_json::to_string(&page).unwrap();
-        let deserialized: Page = serde_json::from_str(&json).unwrap();
-        assert_eq!(page, deserialized);
     }
 
     #[test]
@@ -428,7 +352,7 @@ mod tests {
         let date = chrono::NaiveDate::from_ymd_opt(2026, 2, 21).unwrap();
         let note = DailyNote::from_pull_response(date, "02-21-2026".into(), &pull_result);
 
-        assert!(note.is_empty());
+        assert!(note.blocks.is_empty());
         assert_eq!(note.title, "");
         assert_eq!(note.blocks.len(), 0);
     }
@@ -442,7 +366,7 @@ mod tests {
         let date = chrono::NaiveDate::from_ymd_opt(2026, 2, 21).unwrap();
         let note = DailyNote::from_pull_response(date, "02-21-2026".into(), &pull_result);
 
-        assert!(note.is_empty());
+        assert!(note.blocks.is_empty());
         assert_eq!(note.title, "February 21, 2026");
     }
 }

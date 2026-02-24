@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::io::stdout(),
             crossterm::event::PopKeyboardEnhancementFlags
         );
-        let _ = ratatui::restore();
+        ratatui::restore();
         hook(info);
     }));
 

@@ -133,10 +133,6 @@ impl EditBuffer {
         self.cursor = next_line_start + col.min(next_line_len);
     }
 
-    pub fn to_string(&self) -> String {
-        self.chars.iter().collect()
-    }
-
     pub fn replace_range(&mut self, start: usize, end: usize, replacement: &str) {
         let new_chars: Vec<char> = replacement.chars().collect();
         let new_len = new_chars.len();
@@ -166,6 +162,13 @@ impl EditBuffer {
             }
             self.cursor += prefix_len;
         }
+    }
+}
+
+impl std::fmt::Display for EditBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s: String = self.chars.iter().collect();
+        f.write_str(&s)
     }
 }
 

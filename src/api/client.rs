@@ -1,6 +1,6 @@
 use reqwest::Client;
 
-use crate::api::types::{PullRequest, PullResponse, QueryRequest, QueryResponse, WriteAction};
+use crate::api::types::{PullRequest, PullResponse, WriteAction};
 use crate::error::{Result, RoamError};
 
 #[derive(Clone)]
@@ -19,37 +19,13 @@ impl RoamClient {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new_with_base_url(base_url: &str, token: &str) -> Self {
         Self {
             client: Client::new(),
             base_url: base_url.to_string(),
             token: token.to_string(),
         }
-    }
-
-    #[allow(dead_code)]
-    pub async fn query(&self, query: &str, args: Option<Vec<serde_json::Value>>) -> Result<QueryResponse> {
-        let req = QueryRequest {
-            query: query.to_string(),
-            args,
-        };
-        let resp = self
-            .client
-            .post(format!("{}/q", self.base_url))
-            .header("X-Authorization", format!("Bearer {}", self.token))
-            .json(&req)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status().as_u16();
-            let message = resp.text().await.unwrap_or_default();
-            return Err(RoamError::Api { status, message });
-        }
-
-        let body = resp.json::<QueryResponse>().await?;
-        Ok(body)
     }
 
     pub async fn pull(&self, eid: serde_json::Value, selector: &str) -> Result<PullResponse> {
@@ -108,83 +84,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_sends_correct_headers_and_body() {
-        let (server, client) = setup().await;
-
-        Mock::given(method("POST"))
-            .and(path("/q"))
-            .and(header("X-Authorization", "Bearer test-token"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(json!({"result": [["Page One", "uid1"]]})),
-            )
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let resp = client
-            .query("[:find ?t ?u :where [?e :node/title ?t] [?e :block/uid ?u]]", None)
-            .await
-            .unwrap();
-
-        assert_eq!(resp.result.len(), 1);
-        assert_eq!(resp.result[0][0], "Page One");
-    }
-
-    #[tokio::test]
-    async fn query_with_args() {
-        let (server, client) = setup().await;
-
-        Mock::given(method("POST"))
-            .and(path("/q"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(json!({"result": [["uid1"]]})),
-            )
-            .mount(&server)
-            .await;
-
-        let resp = client
-            .query(
-                "[:find ?uid :in $ ?title :where [?e :node/title ?title] [?e :block/uid ?uid]]",
-                Some(vec![json!("Test Page")]),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(resp.result.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn query_returns_api_error_on_401() {
-        let (server, client) = setup().await;
-
-        Mock::given(method("POST"))
-            .and(path("/q"))
-            .respond_with(ResponseTemplate::new(401).set_body_string("Unauthorized"))
-            .mount(&server)
-            .await;
-
-        let err = client.query("[:find ?t :where [?e :node/title ?t]]", None).await;
-        assert!(err.is_err());
-        match err.unwrap_err() {
-            RoamError::Api { status, message } => {
-                assert_eq!(status, 401);
-                assert_eq!(message, "Unauthorized");
-            }
-            other => panic!("Expected Api error, got: {:?}", other),
-        }
-    }
-
-    #[tokio::test]
     async fn pull_sends_correct_request() {
         let (server, client) = setup().await;
 
         Mock::given(method("POST"))
             .and(path("/pull"))
             .and(header("X-Authorization", "Bearer test-token"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                json!({"result": {":block/uid": "abc", ":block/string": "hello"}}),
-            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(
+                    json!({"result": {":block/uid": "abc", ":block/string": "hello"}}),
+                ),
+            )
             .mount(&server)
             .await;
 
@@ -231,9 +141,7 @@ mod tests {
 
         let err = client
             .write(WriteAction::DeleteBlock {
-                block: crate::api::types::BlockRef {
-                    uid: "abc".into(),
-                },
+                block: crate::api::types::BlockRef { uid: "abc".into() },
             })
             .await;
 

@@ -64,8 +64,6 @@ pub enum AppMessage {
     BlockRefResolved(String, String), // (uid, text)
     ApiError(String),
     Tick,
-    #[allow(dead_code)]
-    Quit,
 }
 
 #[derive(Debug, Clone)]
@@ -117,19 +115,6 @@ impl AppState {
             redo_stack: Vec::new(),
             show_help: false,
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn total_visible_lines(&self) -> usize {
-        let mut count = 0;
-        for (i, day) in self.days.iter().enumerate() {
-            if i > 0 {
-                count += 1; // blank line before day heading (except first)
-            }
-            count += 1; // day heading
-            count += count_blocks_recursive(&day.blocks);
-        }
-        count
     }
 
     pub fn flat_block_count(&self) -> usize {
@@ -316,9 +301,7 @@ fn try_indent_in_list(blocks: &mut Vec<Block>, block_uid: &str) -> Option<(Strin
 
 pub fn dedent_block_in_days(days: &mut [DailyNote], block_uid: &str) -> Option<(String, i64)> {
     for day in days.iter_mut() {
-        if let Some(result) =
-            try_dedent_from_parent_list(&mut day.blocks, &day.uid, block_uid)
-        {
+        if let Some(result) = try_dedent_from_parent_list(&mut day.blocks, &day.uid, block_uid) {
             return Some(result);
         }
     }
@@ -343,11 +326,9 @@ fn try_dedent_from_parent_list(
             return Some((grandparent_uid.to_string(), new_order));
         }
     }
-    for i in 0..grandparent_children.len() {
-        let uid = grandparent_children[i].uid.clone();
-        if let Some(result) =
-            try_dedent_from_parent_list(&mut grandparent_children[i].children, &uid, block_uid)
-        {
+    for child in grandparent_children.iter_mut() {
+        let uid = child.uid.clone();
+        if let Some(result) = try_dedent_from_parent_list(&mut child.children, &uid, block_uid) {
             return Some(result);
         }
     }
@@ -378,7 +359,7 @@ pub fn insert_block_in_days(
 }
 
 fn insert_block_in_children(
-    blocks: &mut Vec<Block>,
+    blocks: &mut [Block],
     parent_uid: &str,
     order: i64,
     new_block: &Block,
@@ -521,9 +502,7 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
             let current_text = resolve_block_at_index(&state.days, state.selected_block)
                 .filter(|info| info.block_uid == block_uid)
                 .map(|info| info.text.clone())
-                .or_else(|| {
-                    find_block_in_days(&state.days, &block_uid).map(|b| b.string.clone())
-                })
+                .or_else(|| find_block_in_days(&state.days, &block_uid).map(|b| b.string.clone()))
                 .unwrap_or_default();
             update_block_text_in_days(&mut state.days, &block_uid, &old_text);
             let redo = UndoEntry::TextEdit {
@@ -556,7 +535,9 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
                     selected_block: saved_selected,
                 }
             } else {
-                UndoEntry::CreateBlock { block_uid: block_uid.clone() }
+                UndoEntry::CreateBlock {
+                    block_uid: block_uid.clone(),
+                }
             };
             let write = WriteAction::DeleteBlock {
                 block: BlockRef { uid: block_uid },
@@ -573,7 +554,9 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
             let text = block.string.clone();
             insert_block_in_days(&mut state.days, &parent_uid, order, block);
             state.selected_block = selected_block;
-            let redo = UndoEntry::CreateBlock { block_uid: uid.clone() };
+            let redo = UndoEntry::CreateBlock {
+                block_uid: uid.clone(),
+            };
             let write = WriteAction::CreateBlock {
                 location: BlockLocation {
                     parent_uid,
@@ -689,10 +672,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
                     buffer: EditBuffer::new_empty(),
                     block_uid: new_uid,
                     original_text: String::new(),
-                    create_info: Some(CreateInfo {
-                        parent_uid,
-                        order,
-                    }),
+                    create_info: Some(CreateInfo { parent_uid, order }),
                 };
             }
             None
@@ -734,9 +714,8 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
                     let day_blocks = count_blocks_recursive(&day.blocks);
                     if state.selected_block < block_count + day_blocks && i > 0 {
                         // Currently in this day, jump to previous day (more recent)
-                        state.selected_block = block_count.saturating_sub(
-                            count_blocks_recursive(&state.days[i - 1].blocks),
-                        );
+                        state.selected_block = block_count
+                            .saturating_sub(count_blocks_recursive(&state.days[i - 1].blocks));
                         break;
                     }
                     block_count += day_blocks;
@@ -834,8 +813,7 @@ pub fn handle_search_key(state: &mut AppState, key: &KeyEvent) {
                 s.selected = s.selected.min(s.results.len().saturating_sub(1));
             }
         }
-        (KeyModifiers::NONE, KeyCode::Char(c))
-        | (KeyModifiers::SHIFT, KeyCode::Char(c)) => {
+        (KeyModifiers::NONE, KeyCode::Char(c)) | (KeyModifiers::SHIFT, KeyCode::Char(c)) => {
             if let Some(s) = &mut state.search {
                 s.query.push(c);
                 let query = s.query.clone();
@@ -874,21 +852,24 @@ pub fn handle_insert_key(state: &mut AppState, key: &KeyEvent) -> Option<WriteAc
     };
 
     match (key.modifiers, key.code) {
-        (KeyModifiers::NONE, KeyCode::Char(ch))
-        | (KeyModifiers::SHIFT, KeyCode::Char(ch)) => match ch {
-            '(' => buffer.insert_pair('(', ')'),
-            '[' => buffer.insert_pair('[', ']'),
-            '{' => buffer.insert_pair('{', '}'),
-            _ => buffer.insert_char(ch),
-        },
+        (KeyModifiers::NONE, KeyCode::Char(ch)) | (KeyModifiers::SHIFT, KeyCode::Char(ch)) => {
+            match ch {
+                '(' => buffer.insert_pair('(', ')'),
+                '[' => buffer.insert_pair('[', ']'),
+                '{' => buffer.insert_pair('{', '}'),
+                _ => buffer.insert_char(ch),
+            }
+        }
         (KeyModifiers::NONE, KeyCode::Backspace) => buffer.delete_back(),
         (KeyModifiers::NONE, KeyCode::Delete) => buffer.delete_forward(),
         (KeyModifiers::NONE, KeyCode::Left) => buffer.move_left(),
         (KeyModifiers::NONE, KeyCode::Right) => buffer.move_right(),
-        (KeyModifiers::NONE, KeyCode::Home)
-        | (KeyModifiers::CONTROL, KeyCode::Char('a')) => buffer.move_home(),
-        (KeyModifiers::NONE, KeyCode::End)
-        | (KeyModifiers::CONTROL, KeyCode::Char('e')) => buffer.move_end(),
+        (KeyModifiers::NONE, KeyCode::Home) | (KeyModifiers::CONTROL, KeyCode::Char('a')) => {
+            buffer.move_home()
+        }
+        (KeyModifiers::NONE, KeyCode::End) | (KeyModifiers::CONTROL, KeyCode::Char('e')) => {
+            buffer.move_end()
+        }
         (KeyModifiers::NONE, KeyCode::Up) => buffer.move_up(),
         (KeyModifiers::NONE, KeyCode::Down) => buffer.move_down(),
         (KeyModifiers::CONTROL, KeyCode::Left) => buffer.move_word_left(),
@@ -949,16 +930,25 @@ fn handle_autocomplete_key(state: &mut AppState, key: &KeyEvent) -> Option<Write
             } else if let Some(ac) = &mut state.autocomplete {
                 ac.query.pop();
                 let query = ac.query.clone();
-                ac.results = filter_blocks(&state.days, &state.block_ref_cache, &query, AUTOCOMPLETE_LIMIT);
+                ac.results = filter_blocks(
+                    &state.days,
+                    &state.block_ref_cache,
+                    &query,
+                    AUTOCOMPLETE_LIMIT,
+                );
                 ac.selected = ac.selected.min(ac.results.len().saturating_sub(1));
             }
         }
-        (KeyModifiers::NONE, KeyCode::Char(ch))
-        | (KeyModifiers::SHIFT, KeyCode::Char(ch)) => {
+        (KeyModifiers::NONE, KeyCode::Char(ch)) | (KeyModifiers::SHIFT, KeyCode::Char(ch)) => {
             if let Some(ac) = &mut state.autocomplete {
                 ac.query.push(ch);
                 let query = ac.query.clone();
-                ac.results = filter_blocks(&state.days, &state.block_ref_cache, &query, AUTOCOMPLETE_LIMIT);
+                ac.results = filter_blocks(
+                    &state.days,
+                    &state.block_ref_cache,
+                    &query,
+                    AUTOCOMPLETE_LIMIT,
+                );
                 ac.selected = ac.selected.min(ac.results.len().saturating_sub(1));
             }
         }
@@ -1099,11 +1089,13 @@ fn handle_indent(state: &mut AppState) -> Option<WriteAction> {
     let (new_parent_uid, new_order) = indent_block_in_days(&mut state.days, &block_uid)?;
 
     if is_create {
-        if let InputMode::Insert { create_info, .. } = &mut state.input_mode {
-            if let Some(info) = create_info {
-                info.parent_uid = new_parent_uid;
-                info.order = new_order;
-            }
+        if let InputMode::Insert {
+            create_info: Some(info),
+            ..
+        } = &mut state.input_mode
+        {
+            info.parent_uid = new_parent_uid;
+            info.order = new_order;
         }
         None
     } else {
@@ -1116,9 +1108,7 @@ fn handle_indent(state: &mut AppState) -> Option<WriteAction> {
             });
         }
         Some(WriteAction::MoveBlock {
-            block: BlockRef {
-                uid: block_uid,
-            },
+            block: BlockRef { uid: block_uid },
             location: BlockLocation {
                 parent_uid: new_parent_uid,
                 order: OrderValue::Position("last".into()),
@@ -1154,11 +1144,13 @@ fn handle_dedent(state: &mut AppState) -> Option<WriteAction> {
     }
 
     if is_create {
-        if let InputMode::Insert { create_info, .. } = &mut state.input_mode {
-            if let Some(info) = create_info {
-                info.parent_uid = new_parent_uid;
-                info.order = new_order;
-            }
+        if let InputMode::Insert {
+            create_info: Some(info),
+            ..
+        } = &mut state.input_mode
+        {
+            info.parent_uid = new_parent_uid;
+            info.order = new_order;
         }
         None
     } else {
@@ -1171,9 +1163,7 @@ fn handle_dedent(state: &mut AppState) -> Option<WriteAction> {
             });
         }
         Some(WriteAction::MoveBlock {
-            block: BlockRef {
-                uid: block_uid,
-            },
+            block: BlockRef { uid: block_uid },
             location: BlockLocation {
                 parent_uid: new_parent_uid,
                 order: OrderValue::Index(new_order),
@@ -1362,11 +1352,7 @@ fn spawn_fetch_daily_note(
     date: NaiveDate,
     tx: &mpsc::UnboundedSender<AppMessage>,
 ) {
-    let uid = queries::daily_note_uid_for_date(
-        date.month(),
-        date.day(),
-        date.year(),
-    );
+    let uid = queries::daily_note_uid_for_date(date.month(), date.day(), date.year());
     let (eid, selector) = queries::pull_daily_note(&uid);
     let client_clone = client.clone();
     let tx_clone = tx.clone();
@@ -1390,7 +1376,13 @@ fn collect_unresolved_refs(state: &AppState) -> Vec<String> {
     let mut unresolved = Vec::new();
 
     for day in &state.days {
-        collect_refs_from_blocks(&day.blocks, &local_map, &state.block_ref_cache, &state.pending_block_refs, &mut unresolved);
+        collect_refs_from_blocks(
+            &day.blocks,
+            &local_map,
+            &state.block_ref_cache,
+            &state.pending_block_refs,
+            &mut unresolved,
+        );
     }
     unresolved
 }
@@ -1442,7 +1434,10 @@ fn extract_uids_from_text(
         }
         // Also check embeds: {{embed: ((uid))}}
         if chars[i] == '{' && chars[i + 1] == '{' {
-            if let Some(end_brace) = chars[i + 2..].windows(2).position(|w| w[0] == '}' && w[1] == '}') {
+            if let Some(end_brace) = chars[i + 2..]
+                .windows(2)
+                .position(|w| w[0] == '}' && w[1] == '}')
+            {
                 let inner: String = chars[i + 2..i + 2 + end_brace].iter().collect();
                 if let Some(uid) = extract_embed_uid(&inner) {
                     if !local_map.contains_key(&uid)
@@ -1510,11 +1505,7 @@ fn spawn_refresh_daily_note(
     date: NaiveDate,
     tx: &mpsc::UnboundedSender<AppMessage>,
 ) {
-    let uid = queries::daily_note_uid_for_date(
-        date.month(),
-        date.day(),
-        date.year(),
-    );
+    let uid = queries::daily_note_uid_for_date(date.month(), date.day(), date.year());
     let (eid, selector) = queries::pull_daily_note(&uid);
     let client_clone = client.clone();
     let tx_clone = tx.clone();
@@ -1532,11 +1523,7 @@ fn spawn_refresh_daily_note(
     });
 }
 
-fn spawn_write(
-    client: &RoamClient,
-    action: WriteAction,
-    tx: &mpsc::UnboundedSender<AppMessage>,
-) {
+fn spawn_write(client: &RoamClient, action: WriteAction, tx: &mpsc::UnboundedSender<AppMessage>) {
     let client = client.clone();
     let tx = tx.clone();
     tokio::spawn(async move {
@@ -1606,9 +1593,7 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
                             spawn_write(&client, write_action, &tx);
                         }
                     } else {
-                        handle_normal_key(
-                            &mut state, &key, &keybindings, &client, &tx,
-                        );
+                        handle_normal_key(&mut state, &key, &keybindings, &client, &tx);
                     }
                 }
                 AppMessage::DailyNoteLoaded(note) => {
@@ -1638,9 +1623,6 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
                             }
                         }
                     }
-                }
-                AppMessage::Quit => {
-                    state.should_quit = true;
                 }
             }
         }
@@ -1706,14 +1688,8 @@ mod tests {
 
     #[test]
     fn resolve_multi_day() {
-        let day1 = make_daily_note(
-            2026, 2, 21,
-            vec![make_block("a", "A", 0)],
-        );
-        let day2 = make_daily_note(
-            2026, 2, 20,
-            vec![make_block("b", "B", 0)],
-        );
+        let day1 = make_daily_note(2026, 2, 21, vec![make_block("a", "A", 0)]);
+        let day2 = make_daily_note(2026, 2, 20, vec![make_block("b", "B", 0)]);
         let days = vec![day1, day2];
 
         let info = resolve_block_at_index(&days, 1).unwrap();
@@ -1726,7 +1702,9 @@ mod tests {
     #[test]
     fn update_top_level_block() {
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "Original", 0)],
         )];
         assert!(update_block_text_in_days(&mut days, "b1", "Changed"));
@@ -1750,7 +1728,9 @@ mod tests {
     #[test]
     fn update_nonexistent_block() {
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "Original", 0)],
         )];
         assert!(!update_block_text_in_days(&mut days, "nope", "X"));
@@ -1761,7 +1741,9 @@ mod tests {
     #[test]
     fn remove_top_level_block() {
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "A", 0), make_block("b2", "B", 1)],
         )];
         assert!(remove_block_from_days(&mut days, "b1"));
@@ -1785,10 +1767,7 @@ mod tests {
 
     #[test]
     fn remove_nonexistent_block() {
-        let mut days = vec![make_daily_note(
-            2026, 2, 21,
-            vec![make_block("b1", "A", 0)],
-        )];
+        let mut days = vec![make_daily_note(2026, 2, 21, vec![make_block("b1", "A", 0)])];
         assert!(!remove_block_from_days(&mut days, "nope"));
     }
 
@@ -1797,7 +1776,9 @@ mod tests {
     #[test]
     fn insert_block_top_level() {
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "First", 0)],
         )];
         let new_block = make_block("b2", "Second", 1);
@@ -2001,7 +1982,10 @@ mod tests {
     fn insert_ctrl_arrows_word_jump() {
         let mut state = test_state();
         enter_insert_mode(&mut state);
-        handle_insert_key(&mut state, &KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        handle_insert_key(
+            &mut state,
+            &KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL),
+        );
         match &state.input_mode {
             InputMode::Insert { buffer, .. } => {
                 assert_eq!(buffer.cursor, 6); // start of "one"
@@ -2137,7 +2121,9 @@ mod tests {
     #[test]
     fn indent_moves_block_to_previous_sibling() {
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "First", 0), make_block("b2", "Second", 1)],
         )];
         let result = indent_block_in_days(&mut days, "b2");
@@ -2162,7 +2148,9 @@ mod tests {
             open: true,
         };
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "First", 0), block_with_kids],
         )];
         indent_block_in_days(&mut days, "b2");
@@ -2175,7 +2163,9 @@ mod tests {
     #[test]
     fn indent_first_block_returns_none() {
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "First", 0), make_block("b2", "Second", 1)],
         )];
         assert!(indent_block_in_days(&mut days, "b1").is_none());
@@ -2192,7 +2182,9 @@ mod tests {
             open: true,
         };
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![prev, make_block("b2", "Second", 1)],
         )];
         let (_, order) = indent_block_in_days(&mut days, "b2").unwrap();
@@ -2227,7 +2219,9 @@ mod tests {
     #[test]
     fn indent_nonexistent_block_returns_none() {
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "First", 0)],
         )];
         assert!(indent_block_in_days(&mut days, "nope").is_none());
@@ -2332,7 +2326,9 @@ mod tests {
     #[test]
     fn dedent_top_level_returns_none() {
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "First", 0)],
         )];
         assert!(dedent_block_in_days(&mut days, "b1").is_none());
@@ -2348,7 +2344,9 @@ mod tests {
             open: true,
         };
         let mut days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![parent, make_block("b2", "Other", 1)],
         )];
         dedent_block_in_days(&mut days, "c1");
@@ -2399,15 +2397,14 @@ mod tests {
         };
         let mut state = test_state();
         state.days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![parent, make_block("b3", "Block three", 1)],
         )];
         state.selected_block = 1; // b2 (child of b1)
         enter_insert_mode(&mut state);
-        let action = handle_insert_key(
-            &mut state,
-            &key_event(KeyCode::BackTab),
-        );
+        let action = handle_insert_key(&mut state, &key_event(KeyCode::BackTab));
         assert!(action.is_some());
         match action.unwrap() {
             WriteAction::MoveBlock { block, location } => {
@@ -2445,10 +2442,7 @@ mod tests {
         let mut state = test_state();
         state.selected_block = 0; // b1, already top-level
         enter_insert_mode(&mut state);
-        let action = handle_insert_key(
-            &mut state,
-            &key_event(KeyCode::BackTab),
-        );
+        let action = handle_insert_key(&mut state, &key_event(KeyCode::BackTab));
         assert!(action.is_none());
         assert!(matches!(state.input_mode, InputMode::Insert { .. }));
     }
@@ -2558,7 +2552,9 @@ mod tests {
     #[test]
     fn filter_blocks_empty_query_returns_all() {
         let days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "Alpha", 0), make_block("b2", "Beta", 1)],
         )];
         let cache = HashMap::new();
@@ -2571,7 +2567,9 @@ mod tests {
     #[test]
     fn filter_blocks_by_query() {
         let days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "Alpha", 0), make_block("b2", "Beta", 1)],
         )];
         let cache = HashMap::new();
@@ -2583,7 +2581,9 @@ mod tests {
     #[test]
     fn filter_blocks_case_insensitive() {
         let days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "Hello World", 0)],
         )];
         let cache = HashMap::new();
@@ -2594,7 +2594,9 @@ mod tests {
     #[test]
     fn filter_blocks_respects_limit() {
         let days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![
                 make_block("b1", "A", 0),
                 make_block("b2", "B", 1),
@@ -2625,7 +2627,9 @@ mod tests {
     #[test]
     fn filter_blocks_includes_cache() {
         let days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "Alpha", 0)],
         )];
         let mut cache = HashMap::new();
@@ -2638,7 +2642,9 @@ mod tests {
     #[test]
     fn filter_blocks_cache_no_duplicates() {
         let days = vec![make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![make_block("b1", "Same text", 0)],
         )];
         let mut cache = HashMap::new();
@@ -2857,12 +2863,7 @@ mod tests {
         let mut state = AppState::new("test", vec![]);
         assert!(state.loading);
 
-        let note = make_daily_note(
-            2026,
-            2,
-            21,
-            vec![make_block("b1", "Hello", 0)],
-        );
+        let note = make_daily_note(2026, 2, 21, vec![make_block("b1", "Hello", 0)]);
         handle_daily_note_loaded(&mut state, note);
 
         assert!(!state.loading);
@@ -2895,7 +2896,11 @@ mod tests {
 
         assert!(!state.loading);
         assert!(!state.loading_more);
-        assert!(state.status_message.as_ref().unwrap().contains("connection refused"));
+        assert!(state
+            .status_message
+            .as_ref()
+            .unwrap()
+            .contains("connection refused"));
     }
 
     #[test]
@@ -2929,7 +2934,9 @@ mod tests {
     fn refresh_loaded_replaces_changed_day() {
         let mut state = test_state();
         let updated = make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![
                 make_block("b1", "Block one EDITED", 0),
                 make_block("b2", "Block two", 1),
@@ -2957,7 +2964,10 @@ mod tests {
         handle_refresh_loaded(&mut state, unknown);
         // Should not add or modify anything
         assert_eq!(state.days.len(), 1);
-        assert_eq!(state.days[0].date, NaiveDate::from_ymd_opt(2026, 2, 21).unwrap());
+        assert_eq!(
+            state.days[0].date,
+            NaiveDate::from_ymd_opt(2026, 2, 21).unwrap()
+        );
     }
 
     #[test]
@@ -2965,7 +2975,9 @@ mod tests {
         let mut state = test_state();
         state.selected_block = 2;
         let updated = make_daily_note(
-            2026, 2, 21,
+            2026,
+            2,
+            21,
             vec![
                 make_block("b1", "Changed", 0),
                 make_block("b2", "Block two", 1),
@@ -2987,20 +2999,6 @@ mod tests {
         assert!(!should_refresh);
     }
 
-    #[test]
-    fn total_visible_lines_includes_headings() {
-        let mut state = AppState::new("test", vec![]);
-        state.loading = false;
-
-        let day1 = make_daily_note(2026, 2, 21, vec![make_block("a", "A", 0)]);
-        let day2 = make_daily_note(2026, 2, 20, vec![make_block("b", "B", 0)]);
-        state.days = vec![day1, day2];
-
-        // day1: heading(1) + block(1) = 2
-        // day2: blank(1) + heading(1) + block(1) = 3
-        assert_eq!(state.total_visible_lines(), 5);
-    }
-
     // --- block ref extraction tests ---
 
     #[test]
@@ -3009,7 +3007,13 @@ mod tests {
         let cache = HashMap::new();
         let pending = HashSet::new();
         let mut out = Vec::new();
-        extract_uids_from_text("see ((abc123)) here", &local_map, &cache, &pending, &mut out);
+        extract_uids_from_text(
+            "see ((abc123)) here",
+            &local_map,
+            &cache,
+            &pending,
+            &mut out,
+        );
         assert_eq!(out, vec!["abc123"]);
     }
 
@@ -3062,7 +3066,13 @@ mod tests {
         let cache = HashMap::new();
         let pending = HashSet::new();
         let mut out = Vec::new();
-        extract_uids_from_text("((aaa)) and ((bbb))", &local_map, &cache, &pending, &mut out);
+        extract_uids_from_text(
+            "((aaa)) and ((bbb))",
+            &local_map,
+            &cache,
+            &pending,
+            &mut out,
+        );
         assert_eq!(out, vec!["aaa", "bbb"]);
     }
 
@@ -3090,7 +3100,9 @@ mod tests {
         state.pending_block_refs.insert("uid1".to_string());
         // Simulate receiving BlockRefResolved message
         state.pending_block_refs.remove("uid1");
-        state.block_ref_cache.insert("uid1".to_string(), "Resolved text".to_string());
+        state
+            .block_ref_cache
+            .insert("uid1".to_string(), "Resolved text".to_string());
         assert_eq!(state.block_ref_cache.get("uid1").unwrap(), "Resolved text");
         assert!(!state.pending_block_refs.contains("uid1"));
     }
@@ -3222,7 +3234,10 @@ mod tests {
         });
         let action = apply_undo(&mut state).unwrap();
         match action {
-            WriteAction::CreateBlock { location, block: new_block } => {
+            WriteAction::CreateBlock {
+                location,
+                block: new_block,
+            } => {
                 assert_eq!(location.parent_uid, "02-21-2026");
                 assert_eq!(new_block.string, "Block two");
                 assert_eq!(new_block.uid, Some("b2".into()));
@@ -3277,7 +3292,7 @@ mod tests {
         apply_undo(&mut state);
         assert_eq!(state.days[0].blocks[1].string, "Block two");
         assert_eq!(state.days[0].blocks[0].string, "Edit 1"); // still changed
-        // Undo edit 1
+                                                              // Undo edit 1
         apply_undo(&mut state);
         assert_eq!(state.days[0].blocks[0].string, "Block one");
         // Stack empty
@@ -3395,7 +3410,7 @@ mod tests {
         handle_search_key(&mut state, &bs);
         assert_eq!(state.search.as_ref().unwrap().query, "o");
         // Results should re-expand
-        assert!(state.search.as_ref().unwrap().results.len() >= 1);
+        assert!(!state.search.as_ref().unwrap().results.is_empty());
     }
 
     #[test]
@@ -3479,14 +3494,24 @@ mod tests {
         let mut state = AppState::new("test-graph", vec![]);
         state.loading = false;
         state.status_message = None;
-        let day1 = make_daily_note(2026, 2, 22, vec![
-            make_block("a1", "Today block 1", 0),
-            make_block("a2", "Today block 2", 1),
-        ]);
-        let day2 = make_daily_note(2026, 2, 21, vec![
-            make_block("b1", "Yesterday block 1", 0),
-            make_block("b2", "Yesterday block 2", 1),
-        ]);
+        let day1 = make_daily_note(
+            2026,
+            2,
+            22,
+            vec![
+                make_block("a1", "Today block 1", 0),
+                make_block("a2", "Today block 2", 1),
+            ],
+        );
+        let day2 = make_daily_note(
+            2026,
+            2,
+            21,
+            vec![
+                make_block("b1", "Yesterday block 1", 0),
+                make_block("b2", "Yesterday block 2", 1),
+            ],
+        );
         state.days = vec![day1, day2]; // reverse chronological
         state
     }

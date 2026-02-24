@@ -6,25 +6,20 @@ use std::collections::HashMap;
 use crossterm::event::KeyEvent;
 
 use crate::error::{Result, RoamError};
-use preset::{Action, get_preset};
+use preset::{get_preset, Action};
 
 pub struct KeybindingMap {
     bindings: HashMap<KeyEvent, Action>,
 }
 
 impl KeybindingMap {
-    pub fn from_preset(
-        name: &str,
-        overrides: &HashMap<String, String>,
-    ) -> Result<Self> {
-        let mut bindings = get_preset(name).ok_or_else(|| {
-            RoamError::Config(format!("Unknown keybinding preset: {}", name))
-        })?;
+    pub fn from_preset(name: &str, overrides: &HashMap<String, String>) -> Result<Self> {
+        let mut bindings = get_preset(name)
+            .ok_or_else(|| RoamError::Config(format!("Unknown keybinding preset: {}", name)))?;
 
         for (action_name, key_str) in overrides {
-            let action = Action::from_str(action_name).ok_or_else(|| {
-                RoamError::Config(format!("Unknown action: {}", action_name))
-            })?;
+            let action = Action::from_str(action_name)
+                .ok_or_else(|| RoamError::Config(format!("Unknown action: {}", action_name)))?;
             let key_event = parser::parse_key(key_str)?;
 
             bindings.retain(|_, v| v != &action);

@@ -2,11 +2,11 @@ pub mod header;
 pub mod main_area;
 pub mod status_bar;
 
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block as WidgetBlock, BorderType, Borders, Clear};
+use ratatui::Frame;
 
 use crate::app::{AppState, AutocompleteState, InputMode, SearchState};
 

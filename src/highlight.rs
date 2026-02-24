@@ -37,10 +37,7 @@ fn style_for_highlight(index: usize, base_style: Style) -> Style {
     }
 }
 
-fn make_config(
-    lang: tree_sitter::Language,
-    highlights: &str,
-) -> Option<HighlightConfiguration> {
+fn make_config(lang: tree_sitter::Language, highlights: &str) -> Option<HighlightConfiguration> {
     let mut config = HighlightConfiguration::new(lang, "highlight", highlights, "", "").ok()?;
     config.configure(HIGHLIGHT_NAMES);
     Some(config)
@@ -100,10 +97,7 @@ fn load_lang_config(lang: &str) -> Option<HighlightConfiguration> {
             tree_sitter_yaml::LANGUAGE.into(),
             tree_sitter_yaml::HIGHLIGHTS_QUERY,
         ),
-        "markdown" | "md" => (
-            tree_sitter_md::LANGUAGE.into(),
-            "",
-        ),
+        "markdown" | "md" => (tree_sitter_md::LANGUAGE.into(), ""),
         _ => return None,
     };
 
@@ -138,7 +132,10 @@ impl CodeHighlighter {
             None => return plain_lines(code, base_style),
         };
 
-        let events = match self.highlighter.highlight(&config, code.as_bytes(), None, |_| None) {
+        let events = match self
+            .highlighter
+            .highlight(&config, code.as_bytes(), None, |_| None)
+        {
             Ok(events) => events,
             Err(_) => return plain_lines(code, base_style),
         };
@@ -173,7 +170,7 @@ impl CodeHighlighter {
         }
 
         // Remove trailing empty line if the code doesn't end with newline
-        if lines.last().map_or(false, |l| l.is_empty()) && !code.ends_with('\n') {
+        if lines.last().is_some_and(|l| l.is_empty()) && !code.ends_with('\n') {
             lines.pop();
         }
 
@@ -206,7 +203,11 @@ mod tests {
         let has_keyword = first_line
             .iter()
             .any(|s| s.content.contains("fn") && s.style.fg == Some(Color::Blue));
-        assert!(has_keyword, "Expected 'fn' keyword in blue, got: {:?}", first_line);
+        assert!(
+            has_keyword,
+            "Expected 'fn' keyword in blue, got: {:?}",
+            first_line
+        );
     }
 
     #[test]
@@ -217,7 +218,11 @@ mod tests {
         let has_keyword = lines[0]
             .iter()
             .any(|s| s.content.contains("def") && s.style.fg == Some(Color::Blue));
-        assert!(has_keyword, "Expected 'def' keyword in blue, got: {:?}", lines[0]);
+        assert!(
+            has_keyword,
+            "Expected 'def' keyword in blue, got: {:?}",
+            lines[0]
+        );
     }
 
     #[test]

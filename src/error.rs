@@ -8,8 +8,6 @@ pub enum RoamError {
     Io(std::io::Error),
     Json(serde_json::Error),
     TomlDe(toml::de::Error),
-    #[allow(dead_code)]
-    Terminal(String),
 }
 
 impl fmt::Display for RoamError {
@@ -21,7 +19,6 @@ impl fmt::Display for RoamError {
             Self::Io(e) => write!(f, "IO error: {}", e),
             Self::Json(e) => write!(f, "JSON error: {}", e),
             Self::TomlDe(e) => write!(f, "TOML parse error: {}", e),
-            Self::Terminal(msg) => write!(f, "Terminal error: {}", msg),
         }
     }
 }
@@ -81,15 +78,6 @@ mod tests {
     fn config_error_displays_message() {
         let err = RoamError::Config("missing api_token".into());
         assert_eq!(err.to_string(), "Config error: missing api_token");
-    }
-
-    #[test]
-    fn terminal_error_displays_message() {
-        let err = RoamError::Terminal("failed to enter raw mode".into());
-        assert_eq!(
-            err.to_string(),
-            "Terminal error: failed to enter raw mode"
-        );
     }
 
     #[test]

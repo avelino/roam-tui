@@ -42,15 +42,9 @@ pub fn render_spans_with_refs(
                 if normalized == "TODO" || normalized == "DONE" {
                     flush_plain(&mut plain, base_style, &mut spans);
                     if normalized == "TODO" {
-                        spans.push(Span::styled(
-                            "☐ ".to_string(),
-                            base_style.fg(Color::Red),
-                        ));
+                        spans.push(Span::styled("☐ ".to_string(), base_style.fg(Color::Red)));
                     } else {
-                        spans.push(Span::styled(
-                            "✓ ".to_string(),
-                            base_style.fg(Color::Green),
-                        ));
+                        spans.push(Span::styled("✓ ".to_string(), base_style.fg(Color::Green)));
                     }
                     i = end + 2; // skip past }}
                     continue;
@@ -129,7 +123,9 @@ pub fn render_spans_with_refs(
                 let content: String = chars[i + 2..end].iter().collect();
                 spans.push(Span::styled(
                     content,
-                    base_style.fg(Color::DarkGray).add_modifier(Modifier::CROSSED_OUT),
+                    base_style
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::CROSSED_OUT),
                 ));
                 i = end + 2;
                 continue;
@@ -219,9 +215,15 @@ fn parse_embed_inner(inner: &str) -> Option<RefText> {
         .or_else(|| inner.strip_prefix("embed:"))?
         .trim();
 
-    if let Some(uid) = trimmed.strip_prefix("((").and_then(|s| s.strip_suffix("))")) {
+    if let Some(uid) = trimmed
+        .strip_prefix("((")
+        .and_then(|s| s.strip_suffix("))"))
+    {
         Some(RefText::BlockUid(uid.to_string()))
-    } else if let Some(page) = trimmed.strip_prefix("[[").and_then(|s| s.strip_suffix("]]")) {
+    } else if let Some(page) = trimmed
+        .strip_prefix("[[")
+        .and_then(|s| s.strip_suffix("]]"))
+    {
         Some(RefText::PageName(page.to_string()))
     } else {
         Some(RefText::PageName(trimmed.to_string()))
@@ -302,12 +304,7 @@ fn find_closing_double_brace(chars: &[char], start: usize) -> Option<usize> {
 
 /// Find position of single delimiter char starting from `start`.
 fn find_single_delimiter(chars: &[char], start: usize, delim: char) -> Option<usize> {
-    for i in start..chars.len() {
-        if chars[i] == delim {
-            return Some(i);
-        }
-    }
-    None
+    (start..chars.len()).find(|&i| chars[i] == delim)
 }
 
 /// Find position of double delimiter (e.g., `**`) starting from `start`.
@@ -321,7 +318,6 @@ fn find_double_delimiter(chars: &[char], start: usize, delim: char) -> Option<us
     }
     None
 }
-
 
 /// Build a uid → text lookup map from loaded daily notes.
 pub fn build_block_text_map(days: &[crate::api::types::DailyNote]) -> HashMap<String, String> {
@@ -569,16 +565,14 @@ mod tests {
     fn embed_with_brackets_syntax() {
         let mut map = HashMap::new();
         map.insert("ref1".to_string(), "Embedded content".to_string());
-        let spans =
-            render_spans_with_refs("{{[[embed]]: ((ref1))}}", default_style(), Some(&map));
+        let spans = render_spans_with_refs("{{[[embed]]: ((ref1))}}", default_style(), Some(&map));
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].content, "▸ Embedded content");
     }
 
     #[test]
     fn embed_page_renders_page_name() {
-        let spans =
-            render_spans_with_refs("{{embed: [[my page]]}}", default_style(), None);
+        let spans = render_spans_with_refs("{{embed: [[my page]]}}", default_style(), None);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].content, "▸ my page");
     }
