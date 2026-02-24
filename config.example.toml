@@ -1,0 +1,16 @@
+[graph]
+name = "your-graph-name"
+api_token = ""  # or set ROAM_API_TOKEN env var
+
+[ui]
+theme = "dark"            # dark | light
+sidebar_default = true    # show backlinks on startup
+sidebar_width_percent = 35
+
+[keybindings]
+preset = "vim"            # vim | emacs | vscode
+
+# Override specific keys:
+# [keybindings.bindings]
+# quit = "Ctrl+q"
+# search = "Ctrl+f"
