@@ -22,6 +22,17 @@ pub struct Block {
     pub children: Vec<Block>,
     #[serde(default)]
     pub open: bool,
+    #[serde(default, skip_serializing)]
+    pub refs: Vec<RefEntity>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RefEntity {
+    pub uid: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub string: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -86,13 +97,33 @@ fn parse_block_from_json(val: &serde_json::Value) -> Block {
         .unwrap_or_default();
     children.sort_by_key(|b| b.order);
 
+    let refs: Vec<RefEntity> = val
+        .get(":block/refs")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(parse_ref_entity).collect())
+        .unwrap_or_default();
+
     Block {
         uid,
         string,
         order,
         children,
         open,
+        refs,
     }
+}
+
+fn parse_ref_entity(val: &serde_json::Value) -> Option<RefEntity> {
+    let uid = val.get(":block/uid").and_then(|v| v.as_str())?.to_string();
+    let title = val
+        .get(":node/title")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let string = val
+        .get(":block/string")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Some(RefEntity { uid, title, string })
 }
 
 #[derive(Debug, Serialize)]
@@ -269,8 +300,10 @@ mod tests {
                 order: 0,
                 children: vec![],
                 open: true,
+                refs: vec![],
             }],
             open: true,
+            refs: vec![],
         };
         let json = serde_json::to_string(&block).unwrap();
         let deserialized: Block = serde_json::from_str(&json).unwrap();
@@ -452,6 +485,73 @@ mod tests {
 
         assert!(note.blocks.is_empty());
         assert_eq!(note.title, "February 21, 2026");
+    }
+
+    #[test]
+    fn block_parses_refs_from_pull_response() {
+        let pull_result = json!({
+            ":node/title": "February 21, 2026",
+            ":block/uid": "02-21-2026",
+            ":block/children": [
+                {
+                    ":block/uid": "block1",
+                    ":block/string": "Links to [[ProjectX]]",
+                    ":block/order": 0,
+                    ":block/open": true,
+                    ":block/refs": [
+                        {
+                            ":block/uid": "page-uid-1",
+                            ":node/title": "ProjectX"
+                        }
+                    ]
+                }
+            ]
+        });
+
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 2, 21).unwrap();
+        let note = DailyNote::from_pull_response(date, "02-21-2026".into(), &pull_result);
+
+        assert_eq!(note.blocks[0].refs.len(), 1);
+        assert_eq!(note.blocks[0].refs[0].uid, "page-uid-1");
+        assert_eq!(note.blocks[0].refs[0].title.as_deref(), Some("ProjectX"));
+    }
+
+    #[test]
+    fn block_parses_without_refs() {
+        let pull_result = json!({
+            ":node/title": "February 21, 2026",
+            ":block/uid": "02-21-2026",
+            ":block/children": [
+                {
+                    ":block/uid": "block1",
+                    ":block/string": "No links here",
+                    ":block/order": 0
+                }
+            ]
+        });
+
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 2, 21).unwrap();
+        let note = DailyNote::from_pull_response(date, "02-21-2026".into(), &pull_result);
+
+        assert!(note.blocks[0].refs.is_empty());
+    }
+
+    #[test]
+    fn refs_not_serialized_in_block_json() {
+        let block = Block {
+            uid: "b1".into(),
+            string: "test".into(),
+            order: 0,
+            children: vec![],
+            open: true,
+            refs: vec![RefEntity {
+                uid: "ref1".into(),
+                title: Some("Page".into()),
+                string: None,
+            }],
+        };
+        let json = serde_json::to_value(&block).unwrap();
+        assert!(json.get("refs").is_none());
     }
 
     #[test]

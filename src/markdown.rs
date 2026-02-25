@@ -670,6 +670,7 @@ mod tests {
                     order: 0,
                     children: vec![],
                     open: true,
+                    refs: vec![],
                 },
                 Block {
                     uid: "b2".into(),
@@ -677,6 +678,7 @@ mod tests {
                     order: 1,
                     children: vec![],
                     open: true,
+                    refs: vec![],
                 },
             ],
         };
@@ -704,8 +706,10 @@ mod tests {
                     order: 0,
                     children: vec![],
                     open: true,
+                    refs: vec![],
                 }],
                 open: true,
+                refs: vec![],
             }],
         };
         let map = build_block_text_map(&[day]);
@@ -728,6 +732,7 @@ mod tests {
                 order: 0,
                 children: vec![],
                 open: true,
+                refs: vec![],
             }],
         };
         let map = build_block_text_map(&[day]);

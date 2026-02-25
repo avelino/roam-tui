@@ -826,6 +826,7 @@ mod tests {
             order,
             children: vec![],
             open: true,
+            refs: vec![],
         }
     }
 
@@ -874,6 +875,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Child", 0)],
             open: true,
+            refs: vec![],
         };
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![parent]);
         let mut hl = CodeHighlighter::new();
@@ -1033,6 +1035,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Child", 0)],
             open: true,
+            refs: vec![],
         };
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![parent]);
 
@@ -1283,6 +1286,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "> nested quote", 0)],
             open: true,
+            refs: vec![],
         };
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![parent]);
         let mut hl = CodeHighlighter::new();
@@ -1608,6 +1612,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Child", 0)],
             open: false,
+            refs: vec![],
         };
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![parent]);
         let mut hl = CodeHighlighter::new();
@@ -1637,6 +1642,7 @@ mod tests {
                 make_block("c3", "Child3", 2),
             ],
             open: false,
+            refs: vec![],
         };
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![parent]);
 

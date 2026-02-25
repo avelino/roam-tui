@@ -23,7 +23,7 @@ pub fn linked_refs_query(page_title: &str) -> String {
 }
 
 fn page_selector() -> String {
-    "[:node/title :block/uid {:block/children [:block/uid :block/string :block/order :block/open {:block/children ...}]}]".to_string()
+    "[:block/uid :node/title :block/string {:block/children [:block/uid :block/string :block/order :block/open {:block/refs [:block/uid :node/title :block/string]} {:block/children ...}]}]".to_string()
 }
 
 #[cfg(test)]
@@ -54,6 +54,12 @@ mod tests {
         assert!(selector.contains(":block/children"));
         assert!(selector.contains(":block/string"));
         assert!(selector.contains(":block/order"));
+    }
+
+    #[test]
+    fn pull_selector_includes_block_refs() {
+        let (_eid, selector) = pull_daily_note("02-21-2026");
+        assert!(selector.contains(":block/refs"));
     }
 
     #[test]

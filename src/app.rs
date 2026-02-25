@@ -858,6 +858,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
                     order,
                     children: vec![],
                     open: true,
+                    refs: vec![],
                 };
                 insert_block_in_days(&mut state.days, &parent_uid, order, placeholder);
                 if let Some(idx) =
@@ -882,6 +883,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
                     order: 0,
                     children: vec![],
                     open: true,
+                    refs: vec![],
                 };
                 state.days[0].blocks.push(placeholder);
                 state.selected_block = 0;
@@ -1786,6 +1788,7 @@ pub fn handle_daily_note_loaded(state: &mut AppState, mut note: DailyNote) {
             order: 0,
             children: vec![],
             open: true,
+            refs: vec![],
         });
     }
     // Insert maintaining reverse chronological order (today first, then older)
@@ -1843,6 +1846,7 @@ pub fn handle_page_loaded(state: &mut AppState, mut note: DailyNote) {
             order: 0,
             children: vec![],
             open: true,
+            refs: vec![],
         });
     }
     state.days = vec![note];
@@ -2290,6 +2294,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Child 1", 0)],
             open: true,
+            refs: vec![],
         };
         let day = make_daily_note(2026, 2, 21, vec![parent, make_block("b2", "Other", 1)]);
         let days = vec![day];
@@ -2334,6 +2339,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Child", 0)],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(2026, 2, 21, vec![parent])];
         assert!(update_block_text_in_days(&mut days, "c1", "New child"));
@@ -2374,6 +2380,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Child", 0)],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(2026, 2, 21, vec![parent])];
         assert!(remove_block_from_days(&mut days, "c1"));
@@ -2410,6 +2417,7 @@ mod tests {
             order: 0,
             children: vec![],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(2026, 2, 21, vec![parent])];
         let new_block = make_block("c1", "Child", 0);
@@ -2761,6 +2769,7 @@ mod tests {
             order: 1,
             children: vec![make_block("c1", "Child", 0)],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(
             2026,
@@ -2795,6 +2804,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Existing child", 0)],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(
             2026,
@@ -2819,6 +2829,7 @@ mod tests {
                 make_block("c2", "Child 2", 1),
             ],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(2026, 2, 21, vec![parent])];
         let result = indent_block_in_days(&mut days, "c2");
@@ -2901,6 +2912,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Child", 0)],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(2026, 2, 21, vec![parent])];
         let result = dedent_block_in_days(&mut days, "c1");
@@ -2922,6 +2934,7 @@ mod tests {
             order: 0,
             children: vec![make_block("gc", "Grandchild", 0)],
             open: true,
+            refs: vec![],
         };
         let parent = Block {
             uid: "p".into(),
@@ -2929,6 +2942,7 @@ mod tests {
             order: 0,
             children: vec![child],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(2026, 2, 21, vec![parent])];
         dedent_block_in_days(&mut days, "c1");
@@ -2957,6 +2971,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Child", 0)],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(
             2026,
@@ -2981,6 +2996,7 @@ mod tests {
             order: 0,
             children: vec![grandchild],
             open: true,
+            refs: vec![],
         };
         let parent = Block {
             uid: "p".into(),
@@ -2988,6 +3004,7 @@ mod tests {
             order: 0,
             children: vec![child],
             open: true,
+            refs: vec![],
         };
         let mut days = vec![make_daily_note(2026, 2, 21, vec![parent])];
         let result = dedent_block_in_days(&mut days, "gc");
@@ -3009,6 +3026,7 @@ mod tests {
             order: 0,
             children: vec![make_block("b2", "Block two", 0)],
             open: true,
+            refs: vec![],
         };
         let mut state = test_state();
         state.days = vec![make_daily_note(
@@ -3042,6 +3060,7 @@ mod tests {
                 make_block("c2", "Child 2", 1),
             ],
             open: true,
+            refs: vec![],
         };
         let mut state = test_state();
         state.days = vec![make_daily_note(2026, 2, 21, vec![parent])];
@@ -3093,6 +3112,7 @@ mod tests {
             order,
             children: vec![],
             open: true,
+            refs: vec![],
         }
     }
 
@@ -3231,6 +3251,7 @@ mod tests {
             order: 0,
             children: vec![make_block("c1", "Nested child", 0)],
             open: true,
+            refs: vec![],
         };
         let days = vec![make_daily_note(2026, 2, 21, vec![parent])];
         let cache = HashMap::new();
@@ -3552,6 +3573,7 @@ mod tests {
                 make_block("c2", "Child 2", 1),
             ],
             open: true,
+            refs: vec![],
         };
         let note = make_daily_note(2026, 2, 21, vec![parent, make_block("b2", "Other", 1)]);
         state.days = vec![note];
@@ -4072,6 +4094,7 @@ mod tests {
                 make_block("c2", "Child 2", 1),
             ],
             open: true,
+            refs: vec![],
         };
         let day = make_daily_note(2026, 2, 21, vec![parent, make_block("b2", "Sibling", 1)]);
         state.days = vec![day];
