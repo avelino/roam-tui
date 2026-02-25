@@ -4,8 +4,18 @@ pub fn daily_note_uid_for_date(month: u32, day: u32, year: i32) -> String {
 
 pub fn pull_daily_note(uid: &str) -> (serde_json::Value, String) {
     let eid = serde_json::Value::String(format!("[:block/uid \"{}\"]", uid));
-    let selector = "[:node/title :block/uid {:block/children [:block/uid :block/string :block/order :block/open {:block/children ...}]}]".to_string();
+    let selector = page_selector();
     (eid, selector)
+}
+
+pub fn pull_page_by_title(title: &str) -> (serde_json::Value, String) {
+    let eid = serde_json::Value::String(format!("[:node/title \"{}\"]", title));
+    let selector = page_selector();
+    (eid, selector)
+}
+
+fn page_selector() -> String {
+    "[:node/title :block/uid {:block/children [:block/uid :block/string :block/order :block/open {:block/children ...}]}]".to_string()
 }
 
 #[cfg(test)]
@@ -45,6 +55,31 @@ mod tests {
         assert_eq!(
             eid,
             serde_json::Value::String("[:block/uid \"02-21-2026\"]".into())
+        );
+    }
+
+    #[test]
+    fn pull_page_by_title_uses_node_title_eid() {
+        let (eid, _selector) = pull_page_by_title("My Page");
+        assert_eq!(
+            eid,
+            serde_json::Value::String("[:node/title \"My Page\"]".into())
+        );
+    }
+
+    #[test]
+    fn pull_page_by_title_uses_same_selector_as_daily_note() {
+        let (_, daily_selector) = pull_daily_note("02-21-2026");
+        let (_, page_selector) = pull_page_by_title("My Page");
+        assert_eq!(daily_selector, page_selector);
+    }
+
+    #[test]
+    fn pull_page_by_title_with_special_chars() {
+        let (eid, _) = pull_page_by_title("C++ / Rust");
+        assert_eq!(
+            eid,
+            serde_json::Value::String("[:node/title \"C++ / Rust\"]".into())
         );
     }
 }

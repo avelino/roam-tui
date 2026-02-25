@@ -26,6 +26,8 @@ pub enum Action {
     Redo,
     CursorLeft,
     CursorRight,
+    NavBack,
+    NavForward,
 }
 
 impl Action {
@@ -53,6 +55,8 @@ impl Action {
             "redo" => Some(Self::Redo),
             "cursor_left" => Some(Self::CursorLeft),
             "cursor_right" => Some(Self::CursorRight),
+            "nav_back" => Some(Self::NavBack),
+            "nav_forward" => Some(Self::NavForward),
             _ => None,
         }
     }
@@ -81,6 +85,8 @@ impl Action {
             Self::Redo => "redo",
             Self::CursorLeft => "cursor ←",
             Self::CursorRight => "cursor →",
+            Self::NavBack => "back",
+            Self::NavForward => "forward",
         }
     }
 }
@@ -119,7 +125,7 @@ pub fn vim_preset() -> HashMap<KeyEvent, Action> {
     m.insert(key(KeyCode::Char('q')), Action::Quit);
     m.insert(key(KeyCode::Char('b')), Action::ToggleSidebar);
     m.insert(key(KeyCode::Char('?')), Action::Help);
-    m.insert(ctrl(KeyCode::Char('o')), Action::QuickSwitcher);
+    m.insert(ctrl(KeyCode::Char('p')), Action::QuickSwitcher);
     m.insert(key(KeyCode::Tab), Action::Indent);
     m.insert(shift(KeyCode::BackTab), Action::Unindent);
     m.insert(key(KeyCode::Char('i')), Action::EditBlock);
@@ -133,6 +139,11 @@ pub fn vim_preset() -> HashMap<KeyEvent, Action> {
     m.insert(key(KeyCode::PageUp), Action::PrevDay);
     m.insert(key(KeyCode::Left), Action::CursorLeft);
     m.insert(key(KeyCode::Right), Action::CursorRight);
+    m.insert(ctrl(KeyCode::Char('o')), Action::NavBack);
+    m.insert(shift(KeyCode::Left), Action::NavBack);
+    m.insert(shift(KeyCode::Right), Action::NavForward);
+    m.insert(alt(KeyCode::Char('[')), Action::NavBack);
+    m.insert(alt(KeyCode::Char(']')), Action::NavForward);
     m
 }
 
@@ -162,6 +173,10 @@ pub fn emacs_preset() -> HashMap<KeyEvent, Action> {
     m.insert(key(KeyCode::PageUp), Action::PrevDay);
     m.insert(key(KeyCode::Left), Action::CursorLeft);
     m.insert(key(KeyCode::Right), Action::CursorRight);
+    m.insert(shift(KeyCode::Left), Action::NavBack);
+    m.insert(shift(KeyCode::Right), Action::NavForward);
+    m.insert(alt(KeyCode::Char('[')), Action::NavBack);
+    m.insert(alt(KeyCode::Char(']')), Action::NavForward);
     m
 }
 
@@ -191,6 +206,10 @@ pub fn vscode_preset() -> HashMap<KeyEvent, Action> {
     m.insert(alt(KeyCode::Down), Action::PrevDay);
     m.insert(key(KeyCode::PageDown), Action::NextDay);
     m.insert(key(KeyCode::PageUp), Action::PrevDay);
+    m.insert(shift(KeyCode::Left), Action::NavBack);
+    m.insert(shift(KeyCode::Right), Action::NavForward);
+    m.insert(alt(KeyCode::Char('[')), Action::NavBack);
+    m.insert(alt(KeyCode::Char(']')), Action::NavForward);
     m
 }
 
@@ -434,5 +453,103 @@ mod tests {
     fn action_hint_text_cursor_left_right() {
         assert!(!Action::CursorLeft.hint_text().is_empty());
         assert!(!Action::CursorRight.hint_text().is_empty());
+    }
+
+    // --- NavBack / NavForward tests ---
+
+    #[test]
+    fn action_from_str_nav_back_forward() {
+        assert_eq!(Action::from_str("nav_back"), Some(Action::NavBack));
+        assert_eq!(Action::from_str("nav_forward"), Some(Action::NavForward));
+    }
+
+    #[test]
+    fn vim_alt_bracket_maps_to_nav_back() {
+        let preset = vim_preset();
+        assert_eq!(preset.get(&alt(KeyCode::Char('['))), Some(&Action::NavBack));
+    }
+
+    #[test]
+    fn vim_alt_bracket_maps_to_nav_forward() {
+        let preset = vim_preset();
+        assert_eq!(
+            preset.get(&alt(KeyCode::Char(']'))),
+            Some(&Action::NavForward)
+        );
+    }
+
+    #[test]
+    fn emacs_alt_bracket_maps_to_nav() {
+        let preset = emacs_preset();
+        assert_eq!(preset.get(&alt(KeyCode::Char('['))), Some(&Action::NavBack));
+        assert_eq!(
+            preset.get(&alt(KeyCode::Char(']'))),
+            Some(&Action::NavForward)
+        );
+    }
+
+    #[test]
+    fn vscode_alt_bracket_maps_to_nav() {
+        let preset = vscode_preset();
+        assert_eq!(preset.get(&alt(KeyCode::Char('['))), Some(&Action::NavBack));
+        assert_eq!(
+            preset.get(&alt(KeyCode::Char(']'))),
+            Some(&Action::NavForward)
+        );
+    }
+
+    // --- Shift+Left/Right (macOS-friendly) nav tests ---
+
+    #[test]
+    fn vim_ctrl_o_maps_to_nav_back() {
+        let preset = vim_preset();
+        assert_eq!(
+            preset.get(&ctrl(KeyCode::Char('o'))),
+            Some(&Action::NavBack)
+        );
+    }
+
+    #[test]
+    fn vim_shift_left_maps_to_nav_back() {
+        let preset = vim_preset();
+        assert_eq!(preset.get(&shift(KeyCode::Left)), Some(&Action::NavBack));
+    }
+
+    #[test]
+    fn vim_shift_right_maps_to_nav_forward() {
+        let preset = vim_preset();
+        assert_eq!(
+            preset.get(&shift(KeyCode::Right)),
+            Some(&Action::NavForward)
+        );
+    }
+
+    #[test]
+    fn emacs_shift_arrows_map_to_nav() {
+        let preset = emacs_preset();
+        assert_eq!(preset.get(&shift(KeyCode::Left)), Some(&Action::NavBack));
+        assert_eq!(
+            preset.get(&shift(KeyCode::Right)),
+            Some(&Action::NavForward)
+        );
+    }
+
+    #[test]
+    fn vscode_shift_arrows_map_to_nav() {
+        let preset = vscode_preset();
+        assert_eq!(preset.get(&shift(KeyCode::Left)), Some(&Action::NavBack));
+        assert_eq!(
+            preset.get(&shift(KeyCode::Right)),
+            Some(&Action::NavForward)
+        );
+    }
+
+    #[test]
+    fn vim_quick_switcher_moved_to_ctrl_p() {
+        let preset = vim_preset();
+        assert_eq!(
+            preset.get(&ctrl(KeyCode::Char('p'))),
+            Some(&Action::QuickSwitcher)
+        );
     }
 }

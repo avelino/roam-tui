@@ -85,7 +85,7 @@ Your daily note loads. Start navigating.
 
 ### Daily notes
 
-Opens today's note on launch. Navigate to previous days with `P` (vim) or scroll past the last block to auto-load older days. Jump back to today with `G`.
+Opens today's note on launch. Navigate to previous days with `P` / `PageUp` (vim) or scroll past the last block to auto-load older days. Jump back to today with `G`.
 
 ### Outline editing
 
@@ -136,6 +136,10 @@ Fenced code blocks (` ``` `) render with syntax highlighting via tree-sitter. Su
 
 Press `?` to see all keybindings for your current preset. Any key closes the help overlay.
 
+### Error display
+
+API errors (rate limits, auth failures, network issues) appear as a popup overlay with a human-readable title and hint instead of raw JSON. Any key dismisses the popup.
+
 ## Keybindings
 
 Three built-in presets. Set with `keybindings.preset` in config.
@@ -146,12 +150,16 @@ Three built-in presets. Set with `keybindings.preset` in config.
 |--------|-----|-------|--------|
 | Move up | `k` / `Up` | `Ctrl+P` / `Up` | `Up` |
 | Move down | `j` / `Down` | `Ctrl+N` / `Down` | `Down` |
-| Collapse | `h` | `Ctrl+B` | `Left` |
-| Expand | `l` | `Ctrl+F` | `Right` |
+| Cursor left | `Left` | `Left` | `Left` |
+| Cursor right | `Right` | `Right` | `Right` |
+| Collapse | `h` | `Ctrl+B` | `Ctrl+Left` |
+| Expand | `l` | `Ctrl+F` | `Ctrl+Right` |
 | Toggle open | `Enter` | `Enter` | `Enter` |
-| Next day | `N` | `Alt+N` | `Alt+Up` |
-| Previous day | `P` | `Alt+P` | `Alt+Down` |
+| Next day | `N` / `PageDown` | `Alt+N` / `PageDown` | `Alt+Up` / `PageDown` |
+| Previous day | `P` / `PageUp` | `Alt+P` / `PageUp` | `Alt+Down` / `PageUp` |
 | Go to today | `G` | `Ctrl+D` | `Ctrl+D` |
+| Navigate back | `Ctrl+O` / `Shift+Left` / `Alt+[` | `Shift+Left` / `Alt+[` | `Shift+Left` / `Alt+[` |
+| Navigate forward | `Shift+Right` / `Alt+]` | `Shift+Right` / `Alt+]` | `Shift+Right` / `Alt+]` |
 
 ### Actions
 
@@ -164,6 +172,8 @@ Three built-in presets. Set with `keybindings.preset` in config.
 | Undo | `u` | `Ctrl+/` | `Ctrl+Z` |
 | Redo | `Ctrl+R` | `Ctrl+Shift+/` | `Ctrl+Shift+Z` |
 | Help | `?` | `Ctrl+H` | `F1` |
+| Quick switcher | `Ctrl+P` | — | `Ctrl+P` |
+| Toggle sidebar | `b` | — | `Ctrl+B` |
 | Quit | `q` | `Ctrl+Q` | `Ctrl+Q` |
 
 ### Edit mode
@@ -267,15 +277,17 @@ What's working now and what's next.
 - [x] Help overlay
 - [x] Optimistic UI updates (no lag on edits)
 - [x] Auto-refresh from API
+- [x] Page navigation (follow `[[links]]`)
+- [x] Navigation history (back/forward)
+- [x] Cursor navigation (left/right within blocks)
+- [x] User-friendly error popups (rate limits, auth, network)
 
 ### Planned
 
 - [ ] Quick switcher (fuzzy page navigation)
 - [ ] Linked references / backlinks panel
 - [ ] Sidebar with page references
-- [ ] Page navigation (follow `[[links]]`)
 - [ ] Unlinked references
-- [ ] Navigation history (back/forward)
 - [ ] Light theme
 - [ ] Breadcrumb display
 

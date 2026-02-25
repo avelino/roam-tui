@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
@@ -329,6 +329,55 @@ fn find_double_delimiter(chars: &[char], start: usize, delim: char) -> Option<us
         i += 1;
     }
     None
+}
+
+/// Extract page names from `[[...]]` and `#[[...]]` links in block text.
+///
+/// Returns a deduplicated list of page names in order of first appearance.
+pub fn extract_page_links(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let mut links = Vec::new();
+    let mut seen = HashSet::new();
+    let mut i = 0;
+
+    while i < len {
+        // Skip `inline code` — links inside code are not navigable
+        if chars[i] == '`' {
+            if let Some(end) = find_single_delimiter(&chars, i + 1, '`') {
+                i = end + 1;
+                continue;
+            }
+        }
+
+        // #[[page tag]] — extract page name without the #
+        if chars[i] == '#' && i + 2 < len && chars[i + 1] == '[' && chars[i + 2] == '[' {
+            if let Some(end) = find_double_delimiter(&chars, i + 3, ']') {
+                let name: String = chars[i + 3..end].iter().collect();
+                if !name.is_empty() && seen.insert(name.clone()) {
+                    links.push(name);
+                }
+                i = end + 2;
+                continue;
+            }
+        }
+
+        // [[page link]]
+        if chars[i] == '[' && i + 1 < len && chars[i + 1] == '[' {
+            if let Some(end) = find_double_delimiter(&chars, i + 2, ']') {
+                let name: String = chars[i + 2..end].iter().collect();
+                if !name.is_empty() && seen.insert(name.clone()) {
+                    links.push(name);
+                }
+                i = end + 2;
+                continue;
+            }
+        }
+
+        i += 1;
+    }
+
+    links
 }
 
 /// Build a uid → text lookup map from loaded daily notes.
@@ -739,5 +788,76 @@ mod tests {
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].content, "uid123");
         assert_eq!(spans[0].style.fg, Some(Color::Magenta));
+    }
+
+    // --- extract_page_links tests ---
+
+    #[test]
+    fn extract_no_links_from_plain_text() {
+        assert!(extract_page_links("hello world").is_empty());
+    }
+
+    #[test]
+    fn extract_single_page_link() {
+        assert_eq!(extract_page_links("see [[My Page]]"), vec!["My Page"]);
+    }
+
+    #[test]
+    fn extract_multiple_page_links() {
+        assert_eq!(
+            extract_page_links("[[Page A]] and [[Page B]]"),
+            vec!["Page A", "Page B"]
+        );
+    }
+
+    #[test]
+    fn extract_deduplicates_links() {
+        assert_eq!(
+            extract_page_links("[[Dup]] then [[Dup]] again"),
+            vec!["Dup"]
+        );
+    }
+
+    #[test]
+    fn extract_ignores_block_refs() {
+        assert!(extract_page_links("((uid123))").is_empty());
+    }
+
+    #[test]
+    fn extract_ignores_markdown_links() {
+        assert!(extract_page_links("[text](http://url.com)").is_empty());
+    }
+
+    #[test]
+    fn extract_hashtag_page_link() {
+        assert_eq!(extract_page_links("#[[Tag Page]]"), vec!["Tag Page"]);
+    }
+
+    #[test]
+    fn extract_mixed_links_and_tags() {
+        assert_eq!(
+            extract_page_links("[[Page]] and #[[Tag]]"),
+            vec!["Page", "Tag"]
+        );
+    }
+
+    #[test]
+    fn extract_unclosed_brackets_ignored() {
+        assert!(extract_page_links("[[unclosed").is_empty());
+    }
+
+    #[test]
+    fn extract_link_inside_bold() {
+        assert_eq!(extract_page_links("**[[Bold Page]]**"), vec!["Bold Page"]);
+    }
+
+    #[test]
+    fn extract_ignores_links_in_inline_code() {
+        assert!(extract_page_links("`[[Code]]`").is_empty());
+    }
+
+    #[test]
+    fn extract_empty_brackets_skipped() {
+        assert!(extract_page_links("[[]]").is_empty());
     }
 }

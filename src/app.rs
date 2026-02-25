@@ -14,7 +14,7 @@ use crate::api::types::{
 };
 use crate::config::AppConfig;
 use crate::edit_buffer::EditBuffer;
-use crate::error::Result;
+use crate::error::{ErrorInfo, ErrorPopup, Result};
 use crate::keys::preset::Action;
 use crate::keys::KeybindingMap;
 use crate::markdown;
@@ -57,12 +57,38 @@ pub struct SearchState {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum ViewMode {
+    DailyNotes,
+    Page { title: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinkPickerState {
+    pub links: Vec<String>,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ViewSnapshot {
+    view_mode: ViewMode,
+    days: Vec<DailyNote>,
+    selected_block: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoadRequest {
+    DailyNote(NaiveDate),
+    Page(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum AppMessage {
     Key(KeyEvent),
     DailyNoteLoaded(DailyNote),
+    PageLoaded(DailyNote),
     RefreshLoaded(DailyNote),
     BlockRefResolved(String, String), // (uid, text)
-    ApiError(String),
+    ApiError(ErrorInfo),
     Tick,
 }
 
@@ -89,6 +115,11 @@ pub struct AppState {
     pub undo_stack: Vec<UndoEntry>,
     pub redo_stack: Vec<UndoEntry>,
     pub show_help: bool,
+    pub view_mode: ViewMode,
+    nav_history: Vec<ViewSnapshot>,
+    nav_index: usize,
+    pub link_picker: Option<LinkPickerState>,
+    pub error_popup: Option<ErrorPopup>,
 }
 
 impl AppState {
@@ -116,6 +147,11 @@ impl AppState {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             show_help: false,
+            view_mode: ViewMode::DailyNotes,
+            nav_history: Vec::new(),
+            nav_index: 0,
+            link_picker: None,
+            error_popup: None,
         }
     }
 
@@ -612,7 +648,7 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
     }
 }
 
-pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate> {
+pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadRequest> {
     match action {
         Action::Quit => {
             state.should_quit = true;
@@ -634,7 +670,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
                 state.selected_block += 1;
                 state.cursor_col = 0;
                 None
-            } else if !state.loading_more {
+            } else if !state.loading_more && state.view_mode == ViewMode::DailyNotes {
                 // At the last block — request loading previous day
                 let oldest = state
                     .days
@@ -643,7 +679,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
                     .unwrap_or(state.current_date);
                 let prev_date = oldest - chrono::Duration::days(1);
                 state.loading_more = true;
-                Some(prev_date)
+                Some(LoadRequest::DailyNote(prev_date))
             } else {
                 None
             }
@@ -729,15 +765,32 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
             None
         }
         Action::Enter => {
-            // Toggle open/closed
             if let Some(info) = resolve_block_at_index(&state.days, state.selected_block) {
-                if let Some(block) = find_block_in_days(&state.days, &info.block_uid) {
-                    set_block_open(&mut state.days, &info.block_uid, !block.open);
+                let links = markdown::extract_page_links(&info.text);
+                match links.len() {
+                    0 => {
+                        // No links — toggle collapse (original behavior)
+                        if let Some(block) = find_block_in_days(&state.days, &info.block_uid) {
+                            set_block_open(&mut state.days, &info.block_uid, !block.open);
+                        }
+                    }
+                    1 => {
+                        // Single link — navigate directly
+                        let title = links.into_iter().next().unwrap();
+                        return Some(navigate_to_page(state, title));
+                    }
+                    _ => {
+                        // Multiple links — open picker
+                        state.link_picker = Some(LinkPickerState { links, selected: 0 });
+                    }
                 }
             }
             None
         }
         Action::NextDay => {
+            if state.view_mode != ViewMode::DailyNotes {
+                return None;
+            }
             // Jump to the first block of the next (more recent) day
             if state.days.len() > 1 {
                 let mut block_count = 0;
@@ -756,6 +809,9 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
             None
         }
         Action::PrevDay => {
+            if state.view_mode != ViewMode::DailyNotes {
+                return None;
+            }
             // Jump to first block of the next older day, or load it
             let mut block_count = 0;
             let mut found = false;
@@ -781,17 +837,27 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
                     .unwrap_or(state.current_date);
                 let prev_date = oldest - chrono::Duration::days(1);
                 state.loading_more = true;
-                return Some(prev_date);
+                return Some(LoadRequest::DailyNote(prev_date));
             }
             None
         }
         Action::GoDaily => {
-            // Jump to first block of today
+            if state.view_mode != ViewMode::DailyNotes {
+                // In page view — save to history, return to daily notes
+                push_nav_snapshot(state);
+                state.view_mode = ViewMode::DailyNotes;
+                state.days.clear();
+                state.selected_block = 0;
+                state.cursor_col = 0;
+                state.loading = true;
+                state.status_message = Some("Loading today's notes...".into());
+                return Some(LoadRequest::DailyNote(state.current_date));
+            }
+            // Already in daily notes — jump to first block of today
             state.selected_block = 0;
             state.cursor_col = 0;
             if state.days.first().map(|d| d.date) != Some(state.current_date) {
-                // Today not loaded, request it
-                return Some(state.current_date);
+                return Some(LoadRequest::DailyNote(state.current_date));
             }
             None
         }
@@ -822,8 +888,127 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
             }
             None
         }
+        Action::NavBack => {
+            let can_go_back = if state.nav_index == state.nav_history.len() {
+                // Current view is unsaved — can go back if there's any history
+                !state.nav_history.is_empty()
+            } else {
+                state.nav_index > 0
+            };
+            if can_go_back {
+                // Save current view: push if at end, or update in place
+                if state.nav_index == state.nav_history.len() {
+                    state.nav_history.push(ViewSnapshot {
+                        view_mode: state.view_mode.clone(),
+                        days: state.days.clone(),
+                        selected_block: state.selected_block,
+                    });
+                } else {
+                    save_nav_snapshot_at_index(state);
+                }
+                state.nav_index -= 1;
+                restore_nav_snapshot(state);
+            }
+            None
+        }
+        Action::NavForward => {
+            if state.nav_index + 1 < state.nav_history.len() {
+                save_nav_snapshot_at_index(state);
+                state.nav_index += 1;
+                restore_nav_snapshot(state);
+            }
+            None
+        }
         _ => None,
     }
+}
+
+/// Save current view as a snapshot and prepare for navigating to a new page.
+/// Returns a LoadRequest::Page for the given title.
+fn navigate_to_page(state: &mut AppState, title: String) -> LoadRequest {
+    push_nav_snapshot(state);
+    state.view_mode = ViewMode::Page {
+        title: title.clone(),
+    };
+    state.days.clear();
+    state.selected_block = 0;
+    state.cursor_col = 0;
+    state.loading = true;
+    state.status_message = Some(format!("Loading {}...", title));
+    LoadRequest::Page(title)
+}
+
+/// Push current state onto navigation history, truncating any forward history.
+fn push_nav_snapshot(state: &mut AppState) {
+    let snapshot = ViewSnapshot {
+        view_mode: state.view_mode.clone(),
+        days: state.days.clone(),
+        selected_block: state.selected_block,
+    };
+    // Truncate forward history
+    state.nav_history.truncate(state.nav_index);
+    state.nav_history.push(snapshot);
+    state.nav_index = state.nav_history.len();
+    // Cap at 50 entries
+    if state.nav_history.len() > 50 {
+        state.nav_history.remove(0);
+        state.nav_index = state.nav_history.len();
+    }
+}
+
+/// Save current state into the current history slot (for back/forward without data loss).
+fn save_nav_snapshot_at_index(state: &mut AppState) {
+    if state.nav_index < state.nav_history.len() {
+        state.nav_history[state.nav_index] = ViewSnapshot {
+            view_mode: state.view_mode.clone(),
+            days: state.days.clone(),
+            selected_block: state.selected_block,
+        };
+    }
+}
+
+/// Restore state from the snapshot at current nav_index.
+fn restore_nav_snapshot(state: &mut AppState) {
+    if let Some(snapshot) = state.nav_history.get(state.nav_index) {
+        state.view_mode = snapshot.view_mode.clone();
+        state.days = snapshot.days.clone();
+        state.selected_block = snapshot.selected_block;
+        state.cursor_col = 0;
+        state.loading = false;
+        state.loading_more = false;
+        state.status_message = None;
+    }
+}
+
+// --- Link picker key handling ---
+
+fn handle_link_picker_key(state: &mut AppState, key: &KeyEvent) -> Option<LoadRequest> {
+    match (key.modifiers, key.code) {
+        (KeyModifiers::NONE, KeyCode::Esc) => {
+            state.link_picker = None;
+        }
+        (KeyModifiers::NONE, KeyCode::Up) => {
+            if let Some(lp) = &mut state.link_picker {
+                lp.selected = lp.selected.saturating_sub(1);
+            }
+        }
+        (KeyModifiers::NONE, KeyCode::Down) => {
+            if let Some(lp) = &mut state.link_picker {
+                if !lp.links.is_empty() && lp.selected < lp.links.len() - 1 {
+                    lp.selected += 1;
+                }
+            }
+        }
+        (KeyModifiers::NONE, KeyCode::Enter) => {
+            if let Some(lp) = state.link_picker.take() {
+                if let Some(title) = lp.links.get(lp.selected) {
+                    return Some(navigate_to_page(state, title.clone()));
+                }
+            }
+        }
+        _ => {}
+    }
+    None
 }
 
 // --- Search mode key handling ---
@@ -1254,6 +1439,17 @@ pub fn handle_delete_block(state: &mut AppState) -> Option<WriteAction> {
     })
 }
 
+fn dispatch_load_request(
+    request: LoadRequest,
+    client: &RoamClient,
+    tx: &mpsc::UnboundedSender<AppMessage>,
+) {
+    match request {
+        LoadRequest::DailyNote(date) => spawn_fetch_daily_note(client, date, tx),
+        LoadRequest::Page(title) => spawn_fetch_page(client, &title, tx),
+    }
+}
+
 fn handle_normal_key(
     state: &mut AppState,
     key: &KeyEvent,
@@ -1272,8 +1468,8 @@ fn handle_normal_key(
     } else if state.pending_key == Some('d') {
         state.pending_key = None;
         if let Some(action) = keybindings.resolve(key) {
-            if let Some(date_to_load) = handle_action(state, action) {
-                spawn_fetch_daily_note(client, date_to_load, tx);
+            if let Some(req) = handle_action(state, action) {
+                dispatch_load_request(req, client, tx);
             }
         }
     } else if key.code == KeyCode::Char('d')
@@ -1290,8 +1486,8 @@ fn handle_normal_key(
             if let Some(write_action) = apply_redo(state) {
                 spawn_write(client, write_action, tx);
             }
-        } else if let Some(date_to_load) = handle_action(state, action) {
-            spawn_fetch_daily_note(client, date_to_load, tx);
+        } else if let Some(req) = handle_action(state, action) {
+            dispatch_load_request(req, client, tx);
         }
     }
 }
@@ -1432,10 +1628,29 @@ pub fn handle_refresh_loaded(state: &mut AppState, note: DailyNote) {
     }
 }
 
-pub fn handle_api_error(state: &mut AppState, error: String) {
+pub fn handle_page_loaded(state: &mut AppState, mut note: DailyNote) {
+    // Ensure the page has at least one block
+    if note.blocks.is_empty() {
+        note.blocks.push(Block {
+            uid: generate_uid(),
+            string: String::new(),
+            order: 0,
+            children: vec![],
+            open: true,
+        });
+    }
+    state.days = vec![note];
+    state.selected_block = 0;
+    state.cursor_col = 0;
     state.loading = false;
     state.loading_more = false;
-    state.status_message = Some(format!("Error: {}", error));
+    state.status_message = None;
+}
+
+pub fn handle_api_error(state: &mut AppState, error: ErrorInfo) {
+    state.loading = false;
+    state.loading_more = false;
+    state.error_popup = Some(ErrorPopup::from_error_info(&error));
 }
 
 fn spawn_fetch_daily_note(
@@ -1455,7 +1670,37 @@ fn spawn_fetch_daily_note(
                 let _ = tx_clone.send(AppMessage::DailyNoteLoaded(note));
             }
             Err(e) => {
-                let _ = tx_clone.send(AppMessage::ApiError(e.to_string()));
+                let _ = tx_clone.send(AppMessage::ApiError(ErrorInfo::from_roam_error(&e)));
+            }
+        }
+    });
+}
+
+fn spawn_fetch_page(client: &RoamClient, title: &str, tx: &mpsc::UnboundedSender<AppMessage>) {
+    let (eid, selector) = queries::pull_page_by_title(title);
+    let client_clone = client.clone();
+    let tx_clone = tx.clone();
+    let title_owned = title.to_string();
+    tokio::spawn(async move {
+        match client_clone.pull(eid, &selector).await {
+            Ok(resp) => {
+                // Use a dummy date — the page is not date-based
+                let dummy_date = chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
+                let uid = resp
+                    .result
+                    .get(":block/uid")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let mut note = DailyNote::from_pull_response(dummy_date, uid, &resp.result);
+                // Ensure title is set even if page doesn't exist yet
+                if note.title.is_empty() {
+                    note.title = title_owned;
+                }
+                let _ = tx_clone.send(AppMessage::PageLoaded(note));
+            }
+            Err(e) => {
+                let _ = tx_clone.send(AppMessage::ApiError(ErrorInfo::from_roam_error(&e)));
             }
         }
     });
@@ -1619,7 +1864,7 @@ fn spawn_write(client: &RoamClient, action: WriteAction, tx: &mpsc::UnboundedSen
     let tx = tx.clone();
     tokio::spawn(async move {
         if let Err(e) = client.write(action).await {
-            let _ = tx.send(AppMessage::ApiError(format!("Write failed: {}", e)));
+            let _ = tx.send(AppMessage::ApiError(ErrorInfo::Write(e.to_string())));
         }
     });
 }
@@ -1674,9 +1919,15 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
         if let Some(msg) = rx.recv().await {
             match msg {
                 AppMessage::Key(key) => {
-                    if state.show_help {
+                    if state.error_popup.is_some() {
+                        state.error_popup = None;
+                    } else if state.show_help {
                         // Any key closes help
                         state.show_help = false;
+                    } else if state.link_picker.is_some() {
+                        if let Some(req) = handle_link_picker_key(&mut state, &key) {
+                            dispatch_load_request(req, &client, &tx);
+                        }
                     } else if state.search.is_some() {
                         handle_search_key(&mut state, &key);
                     } else if state.input_mode != InputMode::Normal {
@@ -1692,6 +1943,11 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
                     let unresolved = collect_unresolved_refs(&state);
                     spawn_resolve_block_refs(&client, unresolved, &mut state, &tx);
                 }
+                AppMessage::PageLoaded(note) => {
+                    handle_page_loaded(&mut state, note);
+                    let unresolved = collect_unresolved_refs(&state);
+                    spawn_resolve_block_refs(&client, unresolved, &mut state, &tx);
+                }
                 AppMessage::BlockRefResolved(uid, text) => {
                     state.pending_block_refs.remove(&uid);
                     state.block_ref_cache.insert(uid, text);
@@ -1703,7 +1959,9 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
                     handle_refresh_loaded(&mut state, note);
                 }
                 AppMessage::Tick => {
-                    if state.input_mode != InputMode::Normal {
+                    if state.input_mode != InputMode::Normal
+                        || state.view_mode != ViewMode::DailyNotes
+                    {
                         state.refresh_counter = 0;
                     } else {
                         state.refresh_counter += 1;
@@ -2912,7 +3170,7 @@ mod tests {
         assert!(result.is_some());
         assert!(state.loading_more);
         let expected_date = NaiveDate::from_ymd_opt(2026, 2, 20).unwrap();
-        assert_eq!(result.unwrap(), expected_date);
+        assert_eq!(result.unwrap(), LoadRequest::DailyNote(expected_date));
     }
 
     #[test]
@@ -2981,17 +3239,31 @@ mod tests {
     }
 
     #[test]
-    fn api_error_updates_state() {
+    fn handle_api_error_sets_popup() {
         let mut state = AppState::new("test", vec![]);
-        handle_api_error(&mut state, "connection refused".into());
+        state.loading = true;
+        let info = crate::error::ErrorInfo::Api {
+            status: 429,
+            body: r#"{"message":"rate limited"}"#.into(),
+        };
+        handle_api_error(&mut state, info);
+
+        assert!(state.error_popup.is_some());
+        let popup = state.error_popup.unwrap();
+        assert_eq!(popup.title, "Rate Limited");
+        assert_eq!(popup.message, "rate limited");
+    }
+
+    #[test]
+    fn handle_api_error_clears_loading() {
+        let mut state = AppState::new("test", vec![]);
+        state.loading = true;
+        state.loading_more = true;
+        let info = crate::error::ErrorInfo::Network("timeout".into());
+        handle_api_error(&mut state, info);
 
         assert!(!state.loading);
         assert!(!state.loading_more);
-        assert!(state
-            .status_message
-            .as_ref()
-            .unwrap()
-            .contains("connection refused"));
     }
 
     #[test]
@@ -3919,5 +4191,262 @@ mod tests {
         handle_action(&mut state, &Action::MoveDown);
         assert_eq!(state.selected_block, 1);
         assert_eq!(state.cursor_col, 0);
+    }
+
+    // --- Page navigation tests ---
+
+    #[test]
+    fn enter_with_single_link_returns_page_request() {
+        let mut state = test_state();
+        // Replace block text with a link
+        state.days[0].blocks[0].string = "see [[My Page]]".to_string();
+        state.selected_block = 0;
+        let result = handle_action(&mut state, &Action::Enter);
+        assert_eq!(result, Some(LoadRequest::Page("My Page".to_string())));
+        assert_eq!(
+            state.view_mode,
+            ViewMode::Page {
+                title: "My Page".to_string()
+            }
+        );
+        assert!(state.loading);
+    }
+
+    #[test]
+    fn enter_with_no_links_toggles_collapse() {
+        let mut state = test_state();
+        state.days[0].blocks[0].string = "no links here".to_string();
+        state.days[0].blocks[0].children = vec![make_block("child", "Child", 0)];
+        state.selected_block = 0;
+        let result = handle_action(&mut state, &Action::Enter);
+        assert!(result.is_none());
+        // Block should now be collapsed
+        assert!(!state.days[0].blocks[0].open);
+    }
+
+    #[test]
+    fn enter_with_multiple_links_opens_picker() {
+        let mut state = test_state();
+        state.days[0].blocks[0].string = "[[Page A]] and [[Page B]]".to_string();
+        state.selected_block = 0;
+        let result = handle_action(&mut state, &Action::Enter);
+        assert!(result.is_none());
+        let lp = state.link_picker.as_ref().unwrap();
+        assert_eq!(lp.links, vec!["Page A", "Page B"]);
+        assert_eq!(lp.selected, 0);
+    }
+
+    #[test]
+    fn navigate_to_page_saves_history() {
+        let mut state = test_state();
+        state.days[0].blocks[0].string = "see [[Target]]".to_string();
+        state.selected_block = 0;
+        handle_action(&mut state, &Action::Enter);
+        // History should contain the previous daily notes view
+        assert_eq!(state.nav_history.len(), 1);
+        assert_eq!(state.nav_history[0].view_mode, ViewMode::DailyNotes);
+    }
+
+    #[test]
+    fn nav_back_restores_previous_view() {
+        let mut state = test_state();
+        // Modify block text to contain a link
+        state.days[0].blocks[0].string = "[[Target]]".to_string();
+        let snapshot_days = state.days.clone();
+        // Navigate to a page
+        handle_action(&mut state, &Action::Enter);
+        // Simulate page load
+        state.days = vec![make_daily_note(
+            2000,
+            1,
+            1,
+            vec![make_block("p1", "Page block", 0)],
+        )];
+        state.loading = false;
+        // Navigate back
+        handle_action(&mut state, &Action::NavBack);
+        assert_eq!(state.view_mode, ViewMode::DailyNotes);
+        assert_eq!(state.days, snapshot_days);
+    }
+
+    #[test]
+    fn nav_forward_after_back() {
+        let mut state = test_state();
+        state.days[0].blocks[0].string = "[[Target]]".to_string();
+        // Navigate to page
+        handle_action(&mut state, &Action::Enter);
+        // Simulate page loaded
+        let page_days = vec![make_daily_note(
+            2000,
+            1,
+            1,
+            vec![make_block("p1", "Page content", 0)],
+        )];
+        state.days = page_days.clone();
+        state.loading = false;
+        // Navigate back
+        handle_action(&mut state, &Action::NavBack);
+        assert_eq!(state.view_mode, ViewMode::DailyNotes);
+        // Navigate forward — should restore the page view with snapshot data
+        handle_action(&mut state, &Action::NavForward);
+        // After navigating to page, the snapshot was empty (we cleared days),
+        // but we saved the current state before going back
+        assert_eq!(
+            state.view_mode,
+            ViewMode::Page {
+                title: "Target".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn nav_back_at_start_does_nothing() {
+        let mut state = test_state();
+        let original_mode = state.view_mode.clone();
+        handle_action(&mut state, &Action::NavBack);
+        assert_eq!(state.view_mode, original_mode);
+    }
+
+    #[test]
+    fn nav_forward_at_end_does_nothing() {
+        let mut state = test_state();
+        handle_action(&mut state, &Action::NavForward);
+        assert_eq!(state.view_mode, ViewMode::DailyNotes);
+    }
+
+    #[test]
+    fn go_daily_from_page_view_returns_to_daily() {
+        let mut state = test_state();
+        state.view_mode = ViewMode::Page {
+            title: "Some Page".to_string(),
+        };
+        let result = handle_action(&mut state, &Action::GoDaily);
+        assert_eq!(result, Some(LoadRequest::DailyNote(state.current_date)));
+        assert_eq!(state.view_mode, ViewMode::DailyNotes);
+    }
+
+    #[test]
+    fn next_day_noop_in_page_view() {
+        let mut state = test_state();
+        state.view_mode = ViewMode::Page {
+            title: "Some Page".to_string(),
+        };
+        state.selected_block = 0;
+        let result = handle_action(&mut state, &Action::NextDay);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn prev_day_noop_in_page_view() {
+        let mut state = test_state();
+        state.view_mode = ViewMode::Page {
+            title: "Some Page".to_string(),
+        };
+        let result = handle_action(&mut state, &Action::PrevDay);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn page_loaded_sets_days_and_clears_loading() {
+        let mut state = test_state();
+        state.loading = true;
+        let page = make_daily_note(2000, 1, 1, vec![make_block("p1", "Page text", 0)]);
+        handle_page_loaded(&mut state, page);
+        assert!(!state.loading);
+        assert_eq!(state.days.len(), 1);
+        assert_eq!(state.days[0].blocks[0].string, "Page text");
+    }
+
+    #[test]
+    fn page_loaded_empty_creates_placeholder_block() {
+        let mut state = test_state();
+        let page = DailyNote {
+            date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
+            uid: "page-uid".into(),
+            title: "Empty Page".into(),
+            blocks: vec![],
+        };
+        handle_page_loaded(&mut state, page);
+        assert_eq!(state.days[0].blocks.len(), 1);
+        assert!(state.days[0].blocks[0].string.is_empty());
+    }
+
+    #[test]
+    fn link_picker_esc_closes() {
+        let mut state = test_state();
+        state.link_picker = Some(LinkPickerState {
+            links: vec!["A".into(), "B".into()],
+            selected: 0,
+        });
+        let key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        handle_link_picker_key(&mut state, &key);
+        assert!(state.link_picker.is_none());
+    }
+
+    #[test]
+    fn link_picker_navigate_up_down() {
+        let mut state = test_state();
+        state.link_picker = Some(LinkPickerState {
+            links: vec!["A".into(), "B".into(), "C".into()],
+            selected: 0,
+        });
+        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        handle_link_picker_key(&mut state, &down);
+        assert_eq!(state.link_picker.as_ref().unwrap().selected, 1);
+
+        handle_link_picker_key(&mut state, &down);
+        assert_eq!(state.link_picker.as_ref().unwrap().selected, 2);
+
+        // Should not go past end
+        handle_link_picker_key(&mut state, &down);
+        assert_eq!(state.link_picker.as_ref().unwrap().selected, 2);
+
+        let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        handle_link_picker_key(&mut state, &up);
+        assert_eq!(state.link_picker.as_ref().unwrap().selected, 1);
+    }
+
+    #[test]
+    fn link_picker_enter_navigates_to_selected() {
+        let mut state = test_state();
+        state.link_picker = Some(LinkPickerState {
+            links: vec!["Page A".into(), "Page B".into()],
+            selected: 1,
+        });
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let result = handle_link_picker_key(&mut state, &enter);
+        assert_eq!(result, Some(LoadRequest::Page("Page B".to_string())));
+        assert!(state.link_picker.is_none());
+    }
+
+    #[test]
+    fn nav_history_caps_at_50() {
+        let mut state = test_state();
+        for i in 0..55 {
+            state.days[0].blocks[0].string = format!("[[Page {}]]", i);
+            state.selected_block = 0;
+            handle_action(&mut state, &Action::Enter);
+            // Simulate page load to reset state
+            state.days = vec![make_daily_note(
+                2000,
+                1,
+                1,
+                vec![make_block("p", &format!("Content {}", i), 0)],
+            )];
+            state.loading = false;
+        }
+        assert!(state.nav_history.len() <= 50);
+    }
+
+    #[test]
+    fn move_down_no_auto_load_in_page_view() {
+        let mut state = test_state();
+        state.view_mode = ViewMode::Page {
+            title: "Test".to_string(),
+        };
+        state.selected_block = 2; // last block
+        let result = handle_action(&mut state, &Action::MoveDown);
+        assert!(result.is_none());
+        assert!(!state.loading_more);
     }
 }
