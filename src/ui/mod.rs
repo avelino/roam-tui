@@ -49,6 +49,7 @@ pub fn render(frame: &mut Frame, state: &AppState) {
         loading_more: state.loading_more,
         edit_info,
         block_ref_cache: &state.block_ref_cache,
+        linked_refs: &state.linked_refs,
     };
     frame.render_widget(main, chunks[1]);
 

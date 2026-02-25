@@ -10,7 +10,8 @@ use tokio::sync::mpsc;
 use crate::api::client::RoamClient;
 use crate::api::queries;
 use crate::api::types::{
-    Block, BlockLocation, BlockRef, BlockUpdate, DailyNote, NewBlock, OrderValue, WriteAction,
+    Block, BlockLocation, BlockRef, BlockUpdate, DailyNote, LinkedRefBlock, LinkedRefGroup,
+    NewBlock, OrderValue, WriteAction,
 };
 use crate::config::AppConfig;
 use crate::edit_buffer::EditBuffer;
@@ -82,12 +83,27 @@ pub enum LoadRequest {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct LinkedRefsState {
+    pub groups: Vec<LinkedRefGroup>,
+    pub collapsed: bool,
+    pub loading: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LinkedRefItem {
+    SectionHeader,
+    GroupHeader(String),
+    Block(LinkedRefBlock),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum AppMessage {
     Key(KeyEvent),
     DailyNoteLoaded(DailyNote),
     PageLoaded(DailyNote),
     RefreshLoaded(DailyNote),
-    BlockRefResolved(String, String), // (uid, text)
+    BlockRefResolved(String, String),              // (uid, text)
+    LinkedRefsLoaded(String, Vec<LinkedRefGroup>), // (page_title, groups)
     ApiError(ErrorInfo),
     Tick,
 }
@@ -120,6 +136,7 @@ pub struct AppState {
     nav_index: usize,
     pub link_picker: Option<LinkPickerState>,
     pub error_popup: Option<ErrorPopup>,
+    pub linked_refs: HashMap<String, LinkedRefsState>,
 }
 
 impl AppState {
@@ -152,6 +169,7 @@ impl AppState {
             nav_index: 0,
             link_picker: None,
             error_popup: None,
+            linked_refs: HashMap::new(),
         }
     }
 
@@ -160,6 +178,54 @@ impl AppState {
             .iter()
             .map(|d| count_blocks_recursive(&d.blocks))
             .sum()
+    }
+
+    pub fn total_navigable_count(&self) -> usize {
+        let mut total = 0;
+        for day in &self.days {
+            total += count_blocks_recursive(&day.blocks);
+            if let Some(lr) = self.linked_refs.get(&day.title) {
+                total += linked_ref_section_count(lr);
+            }
+        }
+        total
+    }
+
+    pub fn resolve_linked_ref_item(&self, index: usize) -> Option<LinkedRefItem> {
+        let mut pos = 0;
+        for day in &self.days {
+            let block_count = count_blocks_recursive(&day.blocks);
+            if index < pos + block_count {
+                return None; // regular block in this day
+            }
+            pos += block_count;
+
+            if let Some(lr) = self.linked_refs.get(&day.title) {
+                let lr_count = linked_ref_section_count(lr);
+                if lr_count > 0 && index < pos + lr_count {
+                    return resolve_within_linked_refs(lr, index - pos);
+                }
+                pos += lr_count;
+            }
+        }
+        None
+    }
+
+    /// Find which day's linked refs section contains this index.
+    /// Returns the day title if the index is a linked ref SectionHeader.
+    pub fn linked_ref_day_at(&self, index: usize) -> Option<String> {
+        let mut pos = 0;
+        for day in &self.days {
+            pos += count_blocks_recursive(&day.blocks);
+            if let Some(lr) = self.linked_refs.get(&day.title) {
+                let lr_count = linked_ref_section_count(lr);
+                if lr_count > 0 && index < pos + lr_count {
+                    return Some(day.title.clone());
+                }
+                pos += lr_count;
+            }
+        }
+        None
     }
 }
 
@@ -193,21 +259,37 @@ pub struct BlockInfo {
     pub depth: usize,
 }
 
-pub fn resolve_block_at_index(days: &[DailyNote], index: usize) -> Option<BlockInfo> {
+pub fn resolve_block_at_index(
+    days: &[DailyNote],
+    linked_refs: &HashMap<String, LinkedRefsState>,
+    index: usize,
+) -> Option<BlockInfo> {
     let mut counter = 0;
     for day in days {
         if let Some(info) = resolve_in_blocks(&day.blocks, &day.uid, 0, index, &mut counter) {
             return Some(info);
         }
+        // Skip past this day's linked ref section
+        if let Some(lr) = linked_refs.get(&day.title) {
+            counter += linked_ref_section_count(lr);
+        }
     }
     None
 }
 
-pub fn find_block_index_by_uid(days: &[DailyNote], uid: &str) -> Option<usize> {
+pub fn find_block_index_by_uid(
+    days: &[DailyNote],
+    linked_refs: &HashMap<String, LinkedRefsState>,
+    uid: &str,
+) -> Option<usize> {
     let mut counter = 0;
     for day in days {
         if let Some(idx) = find_index_in_blocks(&day.blocks, uid, &mut counter) {
             return Some(idx);
+        }
+        // Skip past this day's linked ref section
+        if let Some(lr) = linked_refs.get(&day.title) {
+            counter += linked_ref_section_count(lr);
         }
     }
     None
@@ -419,6 +501,44 @@ fn insert_block_in_children(
     false
 }
 
+fn linked_ref_section_count(lr: &LinkedRefsState) -> usize {
+    if lr.groups.is_empty() {
+        return 0;
+    }
+    if lr.collapsed {
+        1 // header only
+    } else {
+        // 1 (section header) + for each group: 1 (group header) + blocks.len()
+        1 + lr.groups.iter().map(|g| 1 + g.blocks.len()).sum::<usize>()
+    }
+}
+
+fn resolve_within_linked_refs(lr: &LinkedRefsState, offset: usize) -> Option<LinkedRefItem> {
+    if lr.groups.is_empty() {
+        return None;
+    }
+    if offset == 0 {
+        return Some(LinkedRefItem::SectionHeader);
+    }
+    if lr.collapsed {
+        return None;
+    }
+    let mut pos = 1; // past section header
+    for group in &lr.groups {
+        if offset == pos {
+            return Some(LinkedRefItem::GroupHeader(group.page_title.clone()));
+        }
+        pos += 1;
+        for block in &group.blocks {
+            if offset == pos {
+                return Some(LinkedRefItem::Block(block.clone()));
+            }
+            pos += 1;
+        }
+    }
+    None
+}
+
 fn count_blocks_recursive(blocks: &[Block]) -> usize {
     blocks
         .iter()
@@ -537,11 +657,14 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
             old_text,
         } => {
             // Save current text as redo entry
-            let current_text = resolve_block_at_index(&state.days, state.selected_block)
-                .filter(|info| info.block_uid == block_uid)
-                .map(|info| info.text.clone())
-                .or_else(|| find_block_in_days(&state.days, &block_uid).map(|b| b.string.clone()))
-                .unwrap_or_default();
+            let current_text =
+                resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)
+                    .filter(|info| info.block_uid == block_uid)
+                    .map(|info| info.text.clone())
+                    .or_else(|| {
+                        find_block_in_days(&state.days, &block_uid).map(|b| b.string.clone())
+                    })
+                    .unwrap_or_default();
             update_block_text_in_days(&mut state.days, &block_uid, &old_text);
             let redo = UndoEntry::TextEdit {
                 block_uid: block_uid.clone(),
@@ -662,16 +785,19 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
             None
         }
         Action::MoveDown => {
-            let total = state.flat_block_count();
+            let total = state.total_navigable_count();
             if total == 0 {
                 return None;
             }
-            if state.selected_block < total - 1 {
-                state.selected_block += 1;
-                state.cursor_col = 0;
-                None
-            } else if !state.loading_more && state.view_mode == ViewMode::DailyNotes {
-                // At the last block — request loading previous day
+            let flat = state.flat_block_count();
+
+            // In daily notes: trigger load-more when crossing from regular blocks
+            // into linked refs zone (at the boundary)
+            let load_request = if flat > 0
+                && state.selected_block == flat - 1
+                && !state.loading_more
+                && state.view_mode == ViewMode::DailyNotes
+            {
                 let oldest = state
                     .days
                     .last()
@@ -682,10 +808,27 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
                 Some(LoadRequest::DailyNote(prev_date))
             } else {
                 None
+            };
+
+            // Navigate down regardless
+            if state.selected_block < total - 1 {
+                state.selected_block += 1;
+                state.cursor_col = 0;
             }
+
+            load_request
         }
         Action::EditBlock => {
-            if let Some(info) = resolve_block_at_index(&state.days, state.selected_block) {
+            // Guard: no editing in linked refs zone
+            if state
+                .resolve_linked_ref_item(state.selected_block)
+                .is_some()
+            {
+                return None;
+            }
+            if let Some(info) =
+                resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)
+            {
                 state.input_mode = InputMode::Insert {
                     buffer: EditBuffer::new(&info.text),
                     block_uid: info.block_uid,
@@ -696,7 +839,16 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
             None
         }
         Action::CreateBlock => {
-            if let Some(info) = resolve_block_at_index(&state.days, state.selected_block) {
+            // Guard: no creating in linked refs zone
+            if state
+                .resolve_linked_ref_item(state.selected_block)
+                .is_some()
+            {
+                return None;
+            }
+            if let Some(info) =
+                resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)
+            {
                 let new_uid = generate_uid();
                 let order = info.order + 1;
                 let parent_uid = info.parent_uid.clone();
@@ -708,7 +860,9 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
                     open: true,
                 };
                 insert_block_in_days(&mut state.days, &parent_uid, order, placeholder);
-                if let Some(idx) = find_block_index_by_uid(&state.days, &new_uid) {
+                if let Some(idx) =
+                    find_block_index_by_uid(&state.days, &state.linked_refs, &new_uid)
+                {
                     state.selected_block = idx;
                     state.cursor_col = 0;
                 }
@@ -753,19 +907,56 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
             None
         }
         Action::Collapse => {
-            if let Some(info) = resolve_block_at_index(&state.days, state.selected_block) {
+            if state
+                .resolve_linked_ref_item(state.selected_block)
+                .is_some()
+            {
+                return None;
+            }
+            if let Some(info) =
+                resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)
+            {
                 set_block_open(&mut state.days, &info.block_uid, false);
             }
             None
         }
         Action::Expand => {
-            if let Some(info) = resolve_block_at_index(&state.days, state.selected_block) {
+            if state
+                .resolve_linked_ref_item(state.selected_block)
+                .is_some()
+            {
+                return None;
+            }
+            if let Some(info) =
+                resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)
+            {
                 set_block_open(&mut state.days, &info.block_uid, true);
             }
             None
         }
         Action::Enter => {
-            if let Some(info) = resolve_block_at_index(&state.days, state.selected_block) {
+            // Check if we're in the linked refs zone
+            if let Some(item) = state.resolve_linked_ref_item(state.selected_block) {
+                match item {
+                    LinkedRefItem::SectionHeader => {
+                        if let Some(day_title) = state.linked_ref_day_at(state.selected_block) {
+                            if let Some(lr) = state.linked_refs.get_mut(&day_title) {
+                                lr.collapsed = !lr.collapsed;
+                            }
+                        }
+                    }
+                    LinkedRefItem::GroupHeader(title) => {
+                        return Some(navigate_to_page(state, title));
+                    }
+                    LinkedRefItem::Block(block) => {
+                        return Some(navigate_to_page(state, block.page_title));
+                    }
+                }
+                return None;
+            }
+            if let Some(info) =
+                resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)
+            {
                 let links = markdown::extract_page_links(&info.text);
                 match links.len() {
                     0 => {
@@ -850,6 +1041,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
                 state.selected_block = 0;
                 state.cursor_col = 0;
                 state.loading = true;
+                state.linked_refs.clear();
                 state.status_message = Some("Loading today's notes...".into());
                 return Some(LoadRequest::DailyNote(state.current_date));
             }
@@ -879,7 +1071,9 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
             None
         }
         Action::CursorRight => {
-            if let Some(info) = resolve_block_at_index(&state.days, state.selected_block) {
+            if let Some(info) =
+                resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)
+            {
                 let first_line = info.text.split('\n').next().unwrap_or("");
                 let rendered_len = markdown::rendered_char_count(first_line);
                 if rendered_len > 0 && state.cursor_col < rendered_len - 1 {
@@ -934,6 +1128,7 @@ fn navigate_to_page(state: &mut AppState, title: String) -> LoadRequest {
     state.selected_block = 0;
     state.cursor_col = 0;
     state.loading = true;
+    state.linked_refs.clear();
     state.status_message = Some(format!("Loading {}...", title));
     LoadRequest::Page(title)
 }
@@ -976,6 +1171,7 @@ fn restore_nav_snapshot(state: &mut AppState) {
         state.cursor_col = 0;
         state.loading = false;
         state.loading_more = false;
+        state.linked_refs.clear();
         state.status_message = None;
     }
 }
@@ -1033,7 +1229,8 @@ pub fn handle_search_key(state: &mut AppState, key: &KeyEvent) {
         (KeyModifiers::NONE, KeyCode::Enter) => {
             if let Some(s) = state.search.take() {
                 if let Some((uid, _)) = s.results.get(s.selected) {
-                    if let Some(idx) = find_block_index_by_uid(&state.days, uid) {
+                    if let Some(idx) = find_block_index_by_uid(&state.days, &state.linked_refs, uid)
+                    {
                         state.selected_block = idx;
                         state.cursor_col = 0;
                     }
@@ -1318,7 +1515,8 @@ fn handle_indent(state: &mut AppState) -> Option<WriteAction> {
     // Capture state before indent for undo
     let old_info = resolve_block_at_index(
         &state.days,
-        find_block_index_by_uid(&state.days, &block_uid).unwrap_or(0),
+        &state.linked_refs,
+        find_block_index_by_uid(&state.days, &state.linked_refs, &block_uid).unwrap_or(0),
     );
     let saved_selected = state.selected_block;
 
@@ -1369,13 +1567,14 @@ fn handle_dedent(state: &mut AppState) -> Option<WriteAction> {
     // Capture state before dedent for undo
     let old_info = resolve_block_at_index(
         &state.days,
-        find_block_index_by_uid(&state.days, &block_uid).unwrap_or(0),
+        &state.linked_refs,
+        find_block_index_by_uid(&state.days, &state.linked_refs, &block_uid).unwrap_or(0),
     );
     let saved_selected = state.selected_block;
 
     let (new_parent_uid, new_order) = dedent_block_in_days(&mut state.days, &block_uid)?;
 
-    if let Some(idx) = find_block_index_by_uid(&state.days, &block_uid) {
+    if let Some(idx) = find_block_index_by_uid(&state.days, &state.linked_refs, &block_uid) {
         state.selected_block = idx;
     }
 
@@ -1411,8 +1610,15 @@ fn handle_dedent(state: &mut AppState) -> Option<WriteAction> {
 // --- Delete block handler ---
 
 pub fn handle_delete_block(state: &mut AppState) -> Option<WriteAction> {
+    // Guard: no deleting in linked refs zone
+    if state
+        .resolve_linked_ref_item(state.selected_block)
+        .is_some()
+    {
+        return None;
+    }
     state.redo_stack.clear();
-    let info = resolve_block_at_index(&state.days, state.selected_block)?;
+    let info = resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)?;
     let block = find_block_in_days(&state.days, &info.block_uid)?;
     let saved_selected = state.selected_block;
 
@@ -1706,6 +1912,28 @@ fn spawn_fetch_page(client: &RoamClient, title: &str, tx: &mpsc::UnboundedSender
     });
 }
 
+fn spawn_fetch_linked_refs(
+    client: &RoamClient,
+    page_title: &str,
+    tx: &mpsc::UnboundedSender<AppMessage>,
+) {
+    let query = queries::linked_refs_query(page_title);
+    let client_clone = client.clone();
+    let tx_clone = tx.clone();
+    let title_owned = page_title.to_string();
+    tokio::spawn(async move {
+        match client_clone.query(query, vec![]).await {
+            Ok(resp) => {
+                let groups = crate::api::types::parse_linked_refs(&resp.result, &title_owned);
+                let _ = tx_clone.send(AppMessage::LinkedRefsLoaded(title_owned, groups));
+            }
+            Err(e) => {
+                let _ = tx_clone.send(AppMessage::ApiError(ErrorInfo::from_roam_error(&e)));
+            }
+        }
+    });
+}
+
 /// Extract all ((uid)) references from block texts that aren't in the local block map.
 fn collect_unresolved_refs(state: &AppState) -> Vec<String> {
     let local_map = markdown::build_block_text_map(&state.days);
@@ -1942,11 +2170,49 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
                     handle_daily_note_loaded(&mut state, note);
                     let unresolved = collect_unresolved_refs(&state);
                     spawn_resolve_block_refs(&client, unresolved, &mut state, &tx);
+                    // Fetch linked refs for each day that doesn't have them yet
+                    for day in &state.days {
+                        let title = day.title.clone();
+                        if !state.linked_refs.contains_key(&title) {
+                            state.linked_refs.insert(
+                                title.clone(),
+                                LinkedRefsState {
+                                    groups: vec![],
+                                    collapsed: false,
+                                    loading: true,
+                                },
+                            );
+                            spawn_fetch_linked_refs(&client, &title, &tx);
+                        }
+                    }
                 }
                 AppMessage::PageLoaded(note) => {
                     handle_page_loaded(&mut state, note);
                     let unresolved = collect_unresolved_refs(&state);
                     spawn_resolve_block_refs(&client, unresolved, &mut state, &tx);
+                    // Fetch linked refs for page view
+                    if let ViewMode::Page { ref title } = state.view_mode {
+                        let title = title.clone();
+                        state.linked_refs.insert(
+                            title.clone(),
+                            LinkedRefsState {
+                                groups: vec![],
+                                collapsed: false,
+                                loading: true,
+                            },
+                        );
+                        spawn_fetch_linked_refs(&client, &title, &tx);
+                    }
+                }
+                AppMessage::LinkedRefsLoaded(page_title, groups) => {
+                    state.linked_refs.insert(
+                        page_title,
+                        LinkedRefsState {
+                            groups,
+                            collapsed: false,
+                            loading: false,
+                        },
+                    );
                 }
                 AppMessage::BlockRefResolved(uid, text) => {
                     state.pending_block_refs.remove(&uid);
@@ -1995,7 +2261,7 @@ mod tests {
     #[test]
     fn resolve_first_block() {
         let state = test_state_with_blocks();
-        let info = resolve_block_at_index(&state.days, 0).unwrap();
+        let info = resolve_block_at_index(&state.days, &state.linked_refs, 0).unwrap();
         assert_eq!(info.block_uid, "b1");
         assert_eq!(info.parent_uid, "02-21-2026");
         assert_eq!(info.text, "Block one");
@@ -2006,14 +2272,14 @@ mod tests {
     #[test]
     fn resolve_last_block() {
         let state = test_state_with_blocks();
-        let info = resolve_block_at_index(&state.days, 2).unwrap();
+        let info = resolve_block_at_index(&state.days, &state.linked_refs, 2).unwrap();
         assert_eq!(info.block_uid, "b3");
     }
 
     #[test]
     fn resolve_out_of_range() {
         let state = test_state_with_blocks();
-        assert!(resolve_block_at_index(&state.days, 99).is_none());
+        assert!(resolve_block_at_index(&state.days, &state.linked_refs, 99).is_none());
     }
 
     #[test]
@@ -2029,7 +2295,7 @@ mod tests {
         let days = vec![day];
 
         // index 0 = Parent, index 1 = Child 1, index 2 = Other
-        let info = resolve_block_at_index(&days, 1).unwrap();
+        let info = resolve_block_at_index(&days, &HashMap::new(), 1).unwrap();
         assert_eq!(info.block_uid, "c1");
         assert_eq!(info.parent_uid, "p");
         assert_eq!(info.depth, 1);
@@ -2041,7 +2307,7 @@ mod tests {
         let day2 = make_daily_note(2026, 2, 20, vec![make_block("b", "B", 0)]);
         let days = vec![day1, day2];
 
-        let info = resolve_block_at_index(&days, 1).unwrap();
+        let info = resolve_block_at_index(&days, &HashMap::new(), 1).unwrap();
         assert_eq!(info.block_uid, "b");
         assert_eq!(info.parent_uid, "02-20-2026");
     }
@@ -3615,7 +3881,7 @@ mod tests {
         state.selected_block = 1;
         let saved_selected = state.selected_block;
         // Indent b2 under b1
-        let info = resolve_block_at_index(&state.days, 1).unwrap();
+        let info = resolve_block_at_index(&state.days, &state.linked_refs, 1).unwrap();
         indent_block_in_days(&mut state.days, "b2");
         state.undo_stack.push(UndoEntry::MoveBlock {
             block_uid: "b2".into(),
@@ -3847,7 +4113,7 @@ mod tests {
         let mut state = test_state_with_children();
         set_block_open(&mut state.days, "p1", false);
         // index 0 = p1, index 1 = b2 (children hidden)
-        let info = resolve_block_at_index(&state.days, 1).unwrap();
+        let info = resolve_block_at_index(&state.days, &state.linked_refs, 1).unwrap();
         assert_eq!(info.block_uid, "b2");
     }
 
@@ -4448,5 +4714,223 @@ mod tests {
         let result = handle_action(&mut state, &Action::MoveDown);
         assert!(result.is_none());
         assert!(!state.loading_more);
+    }
+
+    // --- Linked References tests ---
+
+    fn make_linked_refs_state() -> LinkedRefsState {
+        LinkedRefsState {
+            groups: vec![
+                LinkedRefGroup {
+                    page_title: "Page A".into(),
+                    blocks: vec![
+                        LinkedRefBlock {
+                            uid: "b1".into(),
+                            string: "ref from A".into(),
+                            page_title: "Page A".into(),
+                        },
+                        LinkedRefBlock {
+                            uid: "b2".into(),
+                            string: "another ref from A".into(),
+                            page_title: "Page A".into(),
+                        },
+                    ],
+                },
+                LinkedRefGroup {
+                    page_title: "Page B".into(),
+                    blocks: vec![LinkedRefBlock {
+                        uid: "b3".into(),
+                        string: "ref from B".into(),
+                        page_title: "Page B".into(),
+                    }],
+                },
+            ],
+            collapsed: false,
+            loading: false,
+        }
+    }
+
+    /// Helper: day title used by test_state() for the single day
+    const TEST_DAY_TITLE: &str = "Test 2026-2-21";
+
+    fn set_linked_refs(state: &mut AppState, lr: LinkedRefsState) {
+        state.linked_refs.insert(TEST_DAY_TITLE.to_string(), lr);
+    }
+
+    #[test]
+    fn linked_ref_items_count_none() {
+        let state = test_state();
+        assert_eq!(state.total_navigable_count(), state.flat_block_count());
+    }
+
+    #[test]
+    fn linked_ref_items_count_empty_groups() {
+        let mut state = test_state();
+        set_linked_refs(
+            &mut state,
+            LinkedRefsState {
+                groups: vec![],
+                collapsed: false,
+                loading: false,
+            },
+        );
+        assert_eq!(state.total_navigable_count(), state.flat_block_count());
+    }
+
+    #[test]
+    fn linked_ref_items_count_expanded() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        // 1 (header) + 1 (group A header) + 2 (blocks) + 1 (group B header) + 1 (block) = 6
+        assert_eq!(state.total_navigable_count(), flat + 6);
+    }
+
+    #[test]
+    fn linked_ref_items_count_collapsed() {
+        let mut state = test_state();
+        let mut lr = make_linked_refs_state();
+        lr.collapsed = true;
+        set_linked_refs(&mut state, lr);
+        let flat = state.flat_block_count();
+        assert_eq!(state.total_navigable_count(), flat + 1);
+    }
+
+    #[test]
+    fn total_navigable_count_includes_linked_refs() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        assert_eq!(state.total_navigable_count(), flat + 6);
+    }
+
+    #[test]
+    fn resolve_linked_ref_item_regular_block_returns_none() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        assert!(state.resolve_linked_ref_item(0).is_none());
+    }
+
+    #[test]
+    fn resolve_linked_ref_item_section_header() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        assert_eq!(
+            state.resolve_linked_ref_item(flat),
+            Some(LinkedRefItem::SectionHeader)
+        );
+    }
+
+    #[test]
+    fn resolve_linked_ref_item_group_header() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        assert_eq!(
+            state.resolve_linked_ref_item(flat + 1),
+            Some(LinkedRefItem::GroupHeader("Page A".into()))
+        );
+    }
+
+    #[test]
+    fn resolve_linked_ref_item_block() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        let item = state.resolve_linked_ref_item(flat + 2);
+        assert!(matches!(item, Some(LinkedRefItem::Block(ref b)) if b.uid == "b1"));
+    }
+
+    #[test]
+    fn resolve_linked_ref_item_second_group() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        // flat+0=header, flat+1=groupA, flat+2=blockA1, flat+3=blockA2, flat+4=groupB, flat+5=blockB1
+        assert_eq!(
+            state.resolve_linked_ref_item(flat + 4),
+            Some(LinkedRefItem::GroupHeader("Page B".into()))
+        );
+    }
+
+    #[test]
+    fn move_down_navigates_into_linked_refs() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        state.selected_block = flat - 1; // last regular block
+        handle_action(&mut state, &Action::MoveDown);
+        assert_eq!(state.selected_block, flat); // linked refs section header
+    }
+
+    #[test]
+    fn edit_block_guard_in_linked_refs() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        state.selected_block = flat; // linked refs header
+        handle_action(&mut state, &Action::EditBlock);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn create_block_guard_in_linked_refs() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        state.selected_block = flat;
+        handle_action(&mut state, &Action::CreateBlock);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn enter_on_linked_ref_section_header_toggles_collapse() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        state.selected_block = flat;
+        handle_action(&mut state, &Action::Enter);
+        assert!(state.linked_refs.get(TEST_DAY_TITLE).unwrap().collapsed);
+        handle_action(&mut state, &Action::Enter);
+        assert!(!state.linked_refs.get(TEST_DAY_TITLE).unwrap().collapsed);
+    }
+
+    #[test]
+    fn enter_on_linked_ref_group_header_navigates() {
+        let mut state = test_state();
+        state.view_mode = ViewMode::Page {
+            title: "Target".into(),
+        };
+        set_linked_refs(&mut state, make_linked_refs_state());
+        let flat = state.flat_block_count();
+        state.selected_block = flat + 1; // "Page A" group header
+        let result = handle_action(&mut state, &Action::Enter);
+        assert!(matches!(result, Some(LoadRequest::Page(ref t)) if t == "Page A"));
+    }
+
+    #[test]
+    fn navigate_to_page_clears_linked_refs() {
+        let mut state = test_state();
+        set_linked_refs(&mut state, make_linked_refs_state());
+        navigate_to_page(&mut state, "SomePage".into());
+        assert!(state.linked_refs.is_empty());
+    }
+
+    #[test]
+    fn handle_page_loaded_sets_state() {
+        let mut state = test_state();
+        state.view_mode = ViewMode::Page {
+            title: "Target".into(),
+        };
+        let note = DailyNote {
+            date: chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
+            uid: "page-uid".into(),
+            title: "Target".into(),
+            blocks: vec![make_block("b1", "content", 0)],
+        };
+        handle_page_loaded(&mut state, note);
+        assert!(!state.loading);
+        assert_eq!(state.days.len(), 1);
     }
 }

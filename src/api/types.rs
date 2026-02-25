@@ -96,6 +96,90 @@ fn parse_block_from_json(val: &serde_json::Value) -> Block {
 }
 
 #[derive(Debug, Serialize)]
+pub struct QueryRequest {
+    pub query: String,
+    pub args: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct QueryResponse {
+    pub result: Vec<Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinkedRefBlock {
+    pub uid: String,
+    pub string: String,
+    pub page_title: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinkedRefGroup {
+    pub page_title: String,
+    pub blocks: Vec<LinkedRefBlock>,
+}
+
+pub fn parse_linked_refs(
+    result: &[Vec<serde_json::Value>],
+    current_page: &str,
+) -> Vec<LinkedRefGroup> {
+    let mut blocks: Vec<LinkedRefBlock> = Vec::new();
+
+    // Each row is a tuple [uid, string, page_title] from the Datalog query
+    for row in result {
+        let uid = row
+            .first()
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let string = row
+            .get(1)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let page_title = row
+            .get(2)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        if uid.is_empty() || page_title.is_empty() {
+            continue;
+        }
+        // Filter self-references
+        if page_title == current_page {
+            continue;
+        }
+
+        blocks.push(LinkedRefBlock {
+            uid,
+            string,
+            page_title,
+        });
+    }
+
+    // Group by page title
+    let mut groups: std::collections::BTreeMap<String, Vec<LinkedRefBlock>> =
+        std::collections::BTreeMap::new();
+    for block in blocks {
+        groups
+            .entry(block.page_title.clone())
+            .or_default()
+            .push(block);
+    }
+
+    // Sort blocks within each group by string for stable order
+    // Groups already sorted alphabetically by BTreeMap
+    groups
+        .into_iter()
+        .map(|(page_title, mut blocks)| {
+            blocks.sort_by(|a, b| a.string.cmp(&b.string));
+            LinkedRefGroup { page_title, blocks }
+        })
+        .collect()
+}
+
+#[derive(Debug, Serialize)]
 #[serde(tag = "action")]
 #[allow(clippy::enum_variant_names)]
 pub enum WriteAction {
@@ -368,5 +452,103 @@ mod tests {
 
         assert!(note.blocks.is_empty());
         assert_eq!(note.title, "February 21, 2026");
+    }
+
+    #[test]
+    fn query_request_serializes() {
+        let req = QueryRequest {
+            query: "[:find ?b :where [?b :block/string]]".into(),
+            args: vec![],
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["query"], "[:find ?b :where [?b :block/string]]");
+        // args should always be present, even when empty
+        assert_eq!(json["args"], json!([]));
+    }
+
+    #[test]
+    fn query_request_serializes_with_args() {
+        let req = QueryRequest {
+            query: "[:find ?b :in $ ?title :where [?b :node/title ?title]]".into(),
+            args: vec![json!("My Page")],
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["args"], json!(["My Page"]));
+    }
+
+    #[test]
+    fn query_response_deserializes() {
+        let raw = r#"{"result": [["abc", "hello text", "My Page"]]}"#;
+        let resp: QueryResponse = serde_json::from_str(raw).unwrap();
+        assert_eq!(resp.result.len(), 1);
+        assert_eq!(resp.result[0].len(), 3);
+        assert_eq!(resp.result[0][0], "abc");
+    }
+
+    #[test]
+    fn parse_linked_refs_groups_by_page() {
+        // Each row is a tuple [uid, string, page_title]
+        let result = vec![
+            vec![json!("b1"), json!("mentions [[Target]]"), json!("Page A")],
+            vec![json!("b2"), json!("also refs [[Target]]"), json!("Page B")],
+            vec![
+                json!("b3"),
+                json!("another ref [[Target]]"),
+                json!("Page A"),
+            ],
+        ];
+
+        let groups = parse_linked_refs(&result, "Target");
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].page_title, "Page A");
+        assert_eq!(groups[0].blocks.len(), 2);
+        assert_eq!(groups[1].page_title, "Page B");
+        assert_eq!(groups[1].blocks.len(), 1);
+    }
+
+    #[test]
+    fn parse_linked_refs_filters_self_refs() {
+        let result = vec![
+            vec![json!("b1"), json!("self ref [[MyPage]]"), json!("MyPage")],
+            vec![
+                json!("b2"),
+                json!("external ref [[MyPage]]"),
+                json!("Other Page"),
+            ],
+        ];
+
+        let groups = parse_linked_refs(&result, "MyPage");
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].page_title, "Other Page");
+    }
+
+    #[test]
+    fn parse_linked_refs_handles_empty() {
+        let groups = parse_linked_refs(&[], "AnyPage");
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn parse_linked_refs_skips_missing_fields() {
+        let result = vec![
+            vec![json!("b1"), json!("text")],              // no page_title
+            vec![json!(""), json!("text"), json!("Page")], // empty uid
+            vec![json!("b3"), json!("text"), json!("")],   // empty page_title
+        ];
+
+        let groups = parse_linked_refs(&result, "X");
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn parse_linked_refs_sorts_blocks_within_group() {
+        let result = vec![
+            vec![json!("b1"), json!("Zebra [[T]]"), json!("Page")],
+            vec![json!("b2"), json!("Alpha [[T]]"), json!("Page")],
+        ];
+
+        let groups = parse_linked_refs(&result, "T");
+        assert_eq!(groups[0].blocks[0].string, "Alpha [[T]]");
+        assert_eq!(groups[0].blocks[1].string, "Zebra [[T]]");
     }
 }

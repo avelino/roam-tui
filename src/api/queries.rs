@@ -14,6 +14,14 @@ pub fn pull_page_by_title(title: &str) -> (serde_json::Value, String) {
     (eid, selector)
 }
 
+pub fn linked_refs_query(page_title: &str) -> String {
+    let escaped = page_title.replace('"', r#"\""#);
+    format!(
+        r#"[:find ?uid ?s ?page-title :where [?target :node/title "{}"] [?b :block/refs ?target] [?b :block/uid ?uid] [?b :block/string ?s] [?b :block/page ?p] [?p :node/title ?page-title]]"#,
+        escaped
+    )
+}
+
 fn page_selector() -> String {
     "[:node/title :block/uid {:block/children [:block/uid :block/string :block/order :block/open {:block/children ...}]}]".to_string()
 }
@@ -81,5 +89,25 @@ mod tests {
             eid,
             serde_json::Value::String("[:node/title \"C++ / Rust\"]".into())
         );
+    }
+
+    #[test]
+    fn linked_refs_query_contains_page_title() {
+        let q = linked_refs_query("My Page");
+        assert!(q.contains("\"My Page\""));
+        assert!(q.contains("?uid"));
+        assert!(q.contains("?s"));
+        assert!(q.contains("?page-title"));
+        assert!(q.contains(":block/refs"));
+        assert!(q.contains(":node/title"));
+        assert!(q.contains(":block/string"));
+        assert!(q.contains(":block/uid"));
+        assert!(q.contains(":block/page"));
+    }
+
+    #[test]
+    fn linked_refs_query_escapes_double_quotes() {
+        let q = linked_refs_query(r#"Page "with" quotes"#);
+        assert!(q.contains(r#"Page \"with\" quotes"#));
     }
 }

@@ -1,6 +1,6 @@
 use reqwest::Client;
 
-use crate::api::types::{PullRequest, PullResponse, WriteAction};
+use crate::api::types::{PullRequest, PullResponse, QueryRequest, QueryResponse, WriteAction};
 use crate::error::{Result, RoamError};
 
 #[derive(Clone)]
@@ -48,6 +48,30 @@ impl RoamClient {
         }
 
         let body = resp.json::<PullResponse>().await?;
+        Ok(body)
+    }
+
+    pub async fn query(
+        &self,
+        query: String,
+        args: Vec<serde_json::Value>,
+    ) -> Result<QueryResponse> {
+        let req = QueryRequest { query, args };
+        let resp = self
+            .client
+            .post(format!("{}/q", self.base_url))
+            .header("X-Authorization", format!("Bearer {}", self.token))
+            .json(&req)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let message = resp.text().await.unwrap_or_default();
+            return Err(RoamError::Api { status, message });
+        }
+
+        let body = resp.json::<QueryResponse>().await?;
         Ok(body)
     }
 
@@ -143,6 +167,48 @@ mod tests {
             .write(WriteAction::DeleteBlock {
                 block: crate::api::types::BlockRef { uid: "abc".into() },
             })
+            .await;
+
+        assert!(err.is_err());
+        match err.unwrap_err() {
+            RoamError::Api { status, .. } => assert_eq!(status, 500),
+            other => panic!("Expected Api error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn query_sends_correct_request() {
+        let (server, client) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/q"))
+            .and(header("X-Authorization", "Bearer test-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": [[{":block/string": "ref text", ":block/uid": "abc"}]]
+            })))
+            .mount(&server)
+            .await;
+
+        let resp = client
+            .query("[:find ?b :where [?b :block/string]]".into(), vec![])
+            .await
+            .unwrap();
+
+        assert_eq!(resp.result.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn query_returns_error_on_500() {
+        let (server, client) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/q"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("Internal Server Error"))
+            .mount(&server)
+            .await;
+
+        let err = client
+            .query("[:find ?b :where [?b :block/string]]".into(), vec![])
             .await;
 
         assert!(err.is_err());

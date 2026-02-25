@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
 use crate::api::types::{Block, DailyNote};
+use crate::app::LinkedRefsState;
 use crate::edit_buffer::EditBuffer;
 use crate::highlight::CodeHighlighter;
 use crate::markdown;
@@ -17,6 +18,7 @@ pub struct MainArea<'a> {
     pub loading_more: bool,
     pub edit_info: Option<EditInfo<'a>>,
     pub block_ref_cache: &'a std::collections::HashMap<String, String>,
+    pub linked_refs: &'a std::collections::HashMap<String, LinkedRefsState>,
 }
 
 pub struct EditInfo<'a> {
@@ -51,6 +53,20 @@ enum VisibleLine {
         block_index: usize,
     },
     LoadingMore,
+    LinkedRefsSeparator,
+    LinkedRefsHeader {
+        count: usize,
+        collapsed: bool,
+        block_index: usize,
+    },
+    LinkedRefsGroupHeader {
+        page_title: String,
+        block_index: usize,
+    },
+    LinkedRefsBlock {
+        text: String,
+        block_index: usize,
+    },
 }
 
 /// Check if a block's text represents a code block (starts with ```)
@@ -90,6 +106,7 @@ fn build_visible_lines(
     days: &[DailyNote],
     loading_more: bool,
     highlighter: &mut CodeHighlighter,
+    linked_refs: &std::collections::HashMap<String, LinkedRefsState>,
 ) -> Vec<VisibleLine> {
     let mut lines = Vec::new();
     let mut block_index = 0;
@@ -100,6 +117,11 @@ fn build_visible_lines(
         }
         lines.push(VisibleLine::DayHeading(day.title.clone()));
         flatten_blocks(&day.blocks, 0, &mut lines, &mut block_index, highlighter);
+
+        // Append linked references for this day
+        if let Some(lr) = linked_refs.get(&day.title) {
+            append_linked_refs(lr, &mut lines, &mut block_index);
+        }
     }
 
     if loading_more {
@@ -108,6 +130,44 @@ fn build_visible_lines(
     }
 
     lines
+}
+
+fn append_linked_refs(lr: &LinkedRefsState, lines: &mut Vec<VisibleLine>, block_index: &mut usize) {
+    if lr.loading {
+        lines.push(VisibleLine::LinkedRefsSeparator);
+        lines.push(VisibleLine::LinkedRefsHeader {
+            count: 0,
+            collapsed: false,
+            block_index: *block_index,
+        });
+    } else if !lr.groups.is_empty() {
+        let total_count: usize = lr.groups.iter().map(|g| g.blocks.len()).sum();
+        lines.push(VisibleLine::LinkedRefsSeparator);
+        lines.push(VisibleLine::LinkedRefsHeader {
+            count: total_count,
+            collapsed: lr.collapsed,
+            block_index: *block_index,
+        });
+        *block_index += 1;
+
+        if !lr.collapsed {
+            for group in &lr.groups {
+                lines.push(VisibleLine::LinkedRefsGroupHeader {
+                    page_title: group.page_title.clone(),
+                    block_index: *block_index,
+                });
+                *block_index += 1;
+
+                for block in &group.blocks {
+                    lines.push(VisibleLine::LinkedRefsBlock {
+                        text: block.string.clone(),
+                        block_index: *block_index,
+                    });
+                    *block_index += 1;
+                }
+            }
+        }
+    }
 }
 
 fn flatten_blocks(
@@ -311,7 +371,12 @@ impl<'a> Widget for MainArea<'a> {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone())),
         );
-        let visible_lines = build_visible_lines(self.days, self.loading_more, &mut highlighter);
+        let visible_lines = build_visible_lines(
+            self.days,
+            self.loading_more,
+            &mut highlighter,
+            self.linked_refs,
+        );
         let max_width = area.width as usize;
 
         // Phase 1: Build all visual rows (blocks may expand to multiple rows)
@@ -623,6 +688,90 @@ impl<'a> Widget for MainArea<'a> {
                         Style::default().fg(Color::DarkGray),
                     ));
                 }
+                VisibleLine::LinkedRefsSeparator => {
+                    let sep = "─".repeat(max_width);
+                    rows.push(Line::styled(
+                        sep,
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::DIM),
+                    ));
+                }
+                VisibleLine::LinkedRefsHeader {
+                    count,
+                    collapsed,
+                    block_index,
+                } => {
+                    let is_selected = *block_index == self.selected_block;
+                    if !found_selected && is_selected {
+                        selected_row = rows.len();
+                        found_selected = true;
+                    }
+                    let arrow = if *collapsed { "▸" } else { "▾" };
+                    let label = if *count == 0 {
+                        format!("  {} Linked References (loading...)", arrow)
+                    } else {
+                        format!("  {} Linked References ({})", arrow, count)
+                    };
+                    let style = if is_selected {
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD)
+                    };
+                    rows.push(Line::styled(truncate(&label, max_width), style));
+                }
+                VisibleLine::LinkedRefsGroupHeader {
+                    page_title,
+                    block_index,
+                } => {
+                    let is_selected = *block_index == self.selected_block;
+                    if !found_selected && is_selected {
+                        selected_row = rows.len();
+                        found_selected = true;
+                    }
+                    let style = if is_selected {
+                        Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+                    } else {
+                        Style::default().fg(Color::Yellow)
+                    };
+                    let label = format!("    {}", page_title);
+                    rows.push(Line::styled(truncate(&label, max_width), style));
+                }
+                VisibleLine::LinkedRefsBlock {
+                    text, block_index, ..
+                } => {
+                    let is_selected = *block_index == self.selected_block;
+                    if !found_selected && is_selected {
+                        selected_row = rows.len();
+                        found_selected = true;
+                    }
+                    let style = if is_selected {
+                        Style::default().fg(Color::White).bg(Color::DarkGray)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    let prefix = "      • ";
+                    let prefix_width = prefix.chars().count();
+                    let text_w = max_width.saturating_sub(prefix_width);
+                    let line_spans =
+                        markdown::render_spans_with_refs(text, style, Some(&block_map));
+                    let wrapped = wrap_spans(line_spans, text_w, text_w);
+                    for (i, wline) in wrapped.into_iter().enumerate() {
+                        let pfx = if i == 0 {
+                            prefix.to_string()
+                        } else {
+                            " ".repeat(prefix_width)
+                        };
+                        let mut full_spans = vec![Span::styled(pfx, style)];
+                        full_spans.extend(wline);
+                        rows.push(Line::from(full_spans));
+                    }
+                }
             }
         }
 
@@ -705,7 +854,7 @@ mod tests {
             vec![make_block("b1", "Hello", 0), make_block("b2", "World", 1)],
         );
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         assert_eq!(lines.len(), 3); // heading + 2 blocks
         assert!(matches!(&lines[0], VisibleLine::DayHeading(t) if t == "February 21, 2026"));
@@ -728,7 +877,7 @@ mod tests {
         };
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![parent]);
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         assert_eq!(lines.len(), 3); // heading + parent + child
         assert!(matches!(
@@ -754,7 +903,7 @@ mod tests {
         let day1 = make_daily_note("Day 1", 2026, 2, 21, vec![make_block("a", "A", 0)]);
         let day2 = make_daily_note("Day 2", 2026, 2, 20, vec![make_block("b", "B", 0)]);
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day1, day2], false, &mut hl);
+        let lines = build_visible_lines(&[day1, day2], false, &mut hl, &HashMap::new());
 
         assert_eq!(lines.len(), 5);
         assert!(matches!(&lines[2], VisibleLine::DaySeparator));
@@ -765,7 +914,7 @@ mod tests {
     fn build_visible_lines_loading_more() {
         let day = make_daily_note("Day 1", 2026, 2, 21, vec![make_block("a", "A", 0)]);
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], true, &mut hl);
+        let lines = build_visible_lines(&[day], true, &mut hl, &HashMap::new());
 
         let last = lines.last().unwrap();
         assert!(matches!(last, VisibleLine::LoadingMore));
@@ -784,6 +933,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -804,6 +954,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -835,6 +986,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -863,6 +1015,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -891,6 +1044,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -915,7 +1069,7 @@ mod tests {
             vec![make_block("c1", code_text, 0), make_block("b2", "After", 1)],
         );
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         // heading + lang label + 2 code lines + "After" block = 5
         let code_line_count = lines
@@ -940,7 +1094,7 @@ mod tests {
         let code_text = "```\nrust\nfn main() {}\nlet x = 1;```";
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("c1", code_text, 0)]);
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         let code_lines: Vec<_> = lines
             .iter()
@@ -961,7 +1115,7 @@ mod tests {
         let code_text = "```\nrust\nfn main() {}```";
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("c1", code_text, 0)]);
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         let label = lines
             .iter()
@@ -988,6 +1142,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1029,6 +1184,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1067,6 +1223,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1086,7 +1243,7 @@ mod tests {
             vec![make_block("b1", "> quoted text", 0)],
         );
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         assert!(matches!(
             &lines[1],
@@ -1104,7 +1261,7 @@ mod tests {
             vec![make_block("b1", "> hello world", 0)],
         );
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         if let VisibleLine::Blockquote { text, .. } = &lines[1] {
             assert!(
@@ -1129,7 +1286,7 @@ mod tests {
         };
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![parent]);
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         assert!(matches!(
             &lines[2],
@@ -1158,6 +1315,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1195,6 +1353,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1230,7 +1389,7 @@ mod tests {
             ],
         );
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         assert!(matches!(&lines[1], VisibleLine::Block { text, .. } if text == "normal text"));
         assert!(matches!(&lines[2], VisibleLine::Blockquote { text, .. } if text == "quoted"));
@@ -1258,6 +1417,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1369,6 +1529,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1412,6 +1573,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1449,7 +1611,7 @@ mod tests {
         };
         let day = make_daily_note("Feb 21", 2026, 2, 21, vec![parent]);
         let mut hl = CodeHighlighter::new();
-        let lines = build_visible_lines(&[day], false, &mut hl);
+        let lines = build_visible_lines(&[day], false, &mut hl, &HashMap::new());
 
         assert!(matches!(
             &lines[1],
@@ -1486,6 +1648,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1523,6 +1686,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1555,6 +1719,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1591,6 +1756,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1633,6 +1799,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1664,6 +1831,7 @@ mod tests {
             loading_more: false,
             edit_info: None,
             block_ref_cache: &HashMap::new(),
+            linked_refs: &HashMap::new(),
         };
         widget.render(area, &mut buf);
 
@@ -1743,5 +1911,159 @@ mod tests {
 
         let all_chars: String = result.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(all_chars, "world", "All characters must be preserved");
+    }
+
+    // --- Linked References rendering tests ---
+
+    use crate::api::types::{LinkedRefBlock, LinkedRefGroup};
+
+    fn make_linked_refs() -> LinkedRefsState {
+        LinkedRefsState {
+            groups: vec![LinkedRefGroup {
+                page_title: "Source Page".into(),
+                blocks: vec![LinkedRefBlock {
+                    uid: "lr1".into(),
+                    string: "mentions [[Target]]".into(),
+                    page_title: "Source Page".into(),
+                }],
+            }],
+            collapsed: false,
+            loading: false,
+        }
+    }
+
+    #[test]
+    fn build_visible_lines_includes_linked_refs() {
+        let day = make_daily_note("Feb 25", 2026, 2, 25, vec![make_block("b1", "Block", 0)]);
+        let lr = make_linked_refs();
+        let lr_map = HashMap::from([("Feb 25".to_string(), lr)]);
+        let mut hl = CodeHighlighter::new();
+        let lines = build_visible_lines(&[day], false, &mut hl, &lr_map);
+
+        // heading + block + separator + header + group header + block = 6
+        assert_eq!(lines.len(), 6);
+        assert!(matches!(&lines[2], VisibleLine::LinkedRefsSeparator));
+        assert!(matches!(
+            &lines[3],
+            VisibleLine::LinkedRefsHeader {
+                count: 1,
+                collapsed: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &lines[4],
+            VisibleLine::LinkedRefsGroupHeader { ref page_title, .. } if page_title == "Source Page"
+        ));
+        assert!(matches!(
+            &lines[5],
+            VisibleLine::LinkedRefsBlock { ref text, .. } if text.contains("Target")
+        ));
+    }
+
+    #[test]
+    fn build_visible_lines_collapsed_linked_refs() {
+        let day = make_daily_note("Feb 25", 2026, 2, 25, vec![make_block("b1", "Block", 0)]);
+        let lr = LinkedRefsState {
+            groups: vec![LinkedRefGroup {
+                page_title: "P".into(),
+                blocks: vec![LinkedRefBlock {
+                    uid: "x".into(),
+                    string: "ref".into(),
+                    page_title: "P".into(),
+                }],
+            }],
+            collapsed: true,
+            loading: false,
+        };
+        let lr_map = HashMap::from([("Feb 25".to_string(), lr)]);
+        let mut hl = CodeHighlighter::new();
+        let lines = build_visible_lines(&[day], false, &mut hl, &lr_map);
+
+        // heading + block + separator + header = 4 (no group/block lines)
+        assert_eq!(lines.len(), 4);
+        assert!(matches!(
+            &lines[3],
+            VisibleLine::LinkedRefsHeader {
+                collapsed: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn build_visible_lines_empty_linked_refs_not_shown() {
+        let day = make_daily_note("Feb 25", 2026, 2, 25, vec![make_block("b1", "Block", 0)]);
+        let lr = LinkedRefsState {
+            groups: vec![],
+            collapsed: false,
+            loading: false,
+        };
+        let lr_map = HashMap::from([("Feb 25".to_string(), lr)]);
+        let mut hl = CodeHighlighter::new();
+        let lines = build_visible_lines(&[day], false, &mut hl, &lr_map);
+
+        // heading + block = 2 (no linked refs section)
+        assert_eq!(lines.len(), 2);
+    }
+
+    #[test]
+    fn renders_linked_refs_header() {
+        let area = Rect::new(0, 0, 60, 15);
+        let mut buf = Buffer::empty(area);
+
+        let day = make_daily_note("Feb 25", 2026, 2, 25, vec![make_block("b1", "Block", 0)]);
+        let lr = make_linked_refs();
+        let lr_map = HashMap::from([("Feb 25".to_string(), lr)]);
+
+        let widget = MainArea {
+            days: &[day],
+            selected_block: 0,
+            cursor_col: 0,
+            loading: false,
+            loading_more: false,
+            edit_info: None,
+            block_ref_cache: &HashMap::new(),
+            linked_refs: &lr_map,
+        };
+        widget.render(area, &mut buf);
+
+        let found_header =
+            (0..area.height).any(|y| read_line(&buf, y, area.width).contains("Linked References"));
+        assert!(found_header, "Expected 'Linked References' header");
+
+        let found_source =
+            (0..area.height).any(|y| read_line(&buf, y, area.width).contains("Source Page"));
+        assert!(found_source, "Expected 'Source Page' group header");
+    }
+
+    #[test]
+    fn linked_refs_block_index_starts_after_flat_blocks() {
+        let day = make_daily_note(
+            "Feb 25",
+            2026,
+            2,
+            25,
+            vec![make_block("b1", "A", 0), make_block("b2", "B", 1)],
+        );
+        let lr = make_linked_refs();
+        let lr_map = HashMap::from([("Feb 25".to_string(), lr)]);
+        let mut hl = CodeHighlighter::new();
+        let lines = build_visible_lines(&[day], false, &mut hl, &lr_map);
+
+        // Lines: [0]=heading, [1]=block(0), [2]=block(1), [3]=separator, [4]=header(2), [5]=group(3), [6]=block(4)
+        if let VisibleLine::LinkedRefsHeader { block_index, .. } = &lines[4] {
+            assert_eq!(*block_index, 2);
+        } else {
+            panic!("Expected LinkedRefsHeader at index 4, got {:?}", &lines[4]);
+        }
+        if let VisibleLine::LinkedRefsGroupHeader { block_index, .. } = &lines[5] {
+            assert_eq!(*block_index, 3);
+        } else {
+            panic!(
+                "Expected LinkedRefsGroupHeader at index 5, got {:?}",
+                &lines[5]
+            );
+        }
     }
 }
