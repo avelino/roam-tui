@@ -73,6 +73,7 @@ pub struct AppState {
     pub days: Vec<DailyNote>,
     pub current_date: NaiveDate,
     pub selected_block: usize,
+    pub cursor_col: usize,
     pub loading: bool,
     pub loading_more: bool,
     pub status_message: Option<String>,
@@ -99,6 +100,7 @@ impl AppState {
             days: Vec::new(),
             current_date: now.date_naive(),
             selected_block: 0,
+            cursor_col: 0,
             loading: true,
             loading_more: false,
             status_message: Some("Loading today's notes...".into()),
@@ -527,6 +529,7 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
             if state.selected_block >= total && total > 0 {
                 state.selected_block = total - 1;
             }
+            state.cursor_col = 0;
             let redo = if let (Some(b), Some((parent_uid, order))) = (block, parent_info) {
                 UndoEntry::DeleteBlock {
                     block: b,
@@ -554,6 +557,7 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
             let text = block.string.clone();
             insert_block_in_days(&mut state.days, &parent_uid, order, block);
             state.selected_block = selected_block;
+            state.cursor_col = 0;
             let redo = UndoEntry::CreateBlock {
                 block_uid: uid.clone(),
             };
@@ -580,6 +584,7 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
             let current_selected = state.selected_block;
             move_block_in_days(&mut state.days, &block_uid, &old_parent_uid, old_order);
             state.selected_block = selected_block;
+            state.cursor_col = 0;
             let redo = if let Some((cur_parent, cur_order)) = current_parent_info {
                 UndoEntry::MoveBlock {
                     block_uid: block_uid.clone(),
@@ -616,6 +621,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
         Action::MoveUp => {
             if state.selected_block > 0 {
                 state.selected_block -= 1;
+                state.cursor_col = 0;
             }
             None
         }
@@ -626,6 +632,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
             }
             if state.selected_block < total - 1 {
                 state.selected_block += 1;
+                state.cursor_col = 0;
                 None
             } else if !state.loading_more {
                 // At the last block — request loading previous day
@@ -667,12 +674,36 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
                 insert_block_in_days(&mut state.days, &parent_uid, order, placeholder);
                 if let Some(idx) = find_block_index_by_uid(&state.days, &new_uid) {
                     state.selected_block = idx;
+                    state.cursor_col = 0;
                 }
                 state.input_mode = InputMode::Insert {
                     buffer: EditBuffer::new_empty(),
                     block_uid: new_uid,
                     original_text: String::new(),
                     create_info: Some(CreateInfo { parent_uid, order }),
+                };
+            } else if let Some(day) = state.days.first() {
+                // No blocks yet — create the first block as child of the day page
+                let new_uid = generate_uid();
+                let parent_uid = day.uid.clone();
+                let placeholder = Block {
+                    uid: new_uid.clone(),
+                    string: String::new(),
+                    order: 0,
+                    children: vec![],
+                    open: true,
+                };
+                state.days[0].blocks.push(placeholder);
+                state.selected_block = 0;
+                state.cursor_col = 0;
+                state.input_mode = InputMode::Insert {
+                    buffer: EditBuffer::new_empty(),
+                    block_uid: new_uid,
+                    original_text: String::new(),
+                    create_info: Some(CreateInfo {
+                        parent_uid,
+                        order: 0,
+                    }),
                 };
             }
             None
@@ -716,6 +747,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
                         // Currently in this day, jump to previous day (more recent)
                         state.selected_block = block_count
                             .saturating_sub(count_blocks_recursive(&state.days[i - 1].blocks));
+                        state.cursor_col = 0;
                         break;
                     }
                     block_count += day_blocks;
@@ -733,6 +765,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
                     // Currently in day i, jump to day i+1 if exists
                     if i + 1 < state.days.len() {
                         state.selected_block = block_count + day_blocks;
+                        state.cursor_col = 0;
                         found = true;
                     }
                     break;
@@ -755,6 +788,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
         Action::GoDaily => {
             // Jump to first block of today
             state.selected_block = 0;
+            state.cursor_col = 0;
             if state.days.first().map(|d| d.date) != Some(state.current_date) {
                 // Today not loaded, request it
                 return Some(state.current_date);
@@ -769,6 +803,22 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<NaiveDate>
             // Close any overlay, or do nothing
             if state.show_help {
                 state.show_help = false;
+            }
+            None
+        }
+        Action::CursorLeft => {
+            if state.cursor_col > 0 {
+                state.cursor_col -= 1;
+            }
+            None
+        }
+        Action::CursorRight => {
+            if let Some(info) = resolve_block_at_index(&state.days, state.selected_block) {
+                let first_line = info.text.split('\n').next().unwrap_or("");
+                let rendered_len = markdown::rendered_char_count(first_line);
+                if rendered_len > 0 && state.cursor_col < rendered_len - 1 {
+                    state.cursor_col += 1;
+                }
             }
             None
         }
@@ -800,6 +850,7 @@ pub fn handle_search_key(state: &mut AppState, key: &KeyEvent) {
                 if let Some((uid, _)) = s.results.get(s.selected) {
                     if let Some(idx) = find_block_index_by_uid(&state.days, uid) {
                         state.selected_block = idx;
+                        state.cursor_col = 0;
                     }
                 }
             }
@@ -1320,7 +1371,21 @@ fn generate_uid() -> String {
     format!("tui-{:x}", nanos)
 }
 
-pub fn handle_daily_note_loaded(state: &mut AppState, note: DailyNote) {
+pub fn handle_daily_note_loaded(state: &mut AppState, mut note: DailyNote) {
+    // Generate Roam-style title if the page doesn't exist yet
+    if note.title.is_empty() {
+        note.title = format_roam_daily_title(note.date);
+    }
+    // Ensure every day has at least one block so navigation always works
+    if note.blocks.is_empty() {
+        note.blocks.push(Block {
+            uid: generate_uid(),
+            string: String::new(),
+            order: 0,
+            children: vec![],
+            open: true,
+        });
+    }
     // Insert maintaining reverse chronological order (today first, then older)
     let pos = state
         .days
@@ -1331,6 +1396,32 @@ pub fn handle_daily_note_loaded(state: &mut AppState, note: DailyNote) {
     state.loading = false;
     state.loading_more = false;
     state.status_message = None;
+}
+
+fn format_roam_daily_title(date: NaiveDate) -> String {
+    let month = match date.month() {
+        1 => "January",
+        2 => "February",
+        3 => "March",
+        4 => "April",
+        5 => "May",
+        6 => "June",
+        7 => "July",
+        8 => "August",
+        9 => "September",
+        10 => "October",
+        11 => "November",
+        12 => "December",
+        _ => "",
+    };
+    let day = date.day();
+    let suffix = match day {
+        1 | 21 | 31 => "st",
+        2 | 22 => "nd",
+        3 | 23 => "rd",
+        _ => "th",
+    };
+    format!("{} {}{}, {}", month, day, suffix, date.year())
 }
 
 pub fn handle_refresh_loaded(state: &mut AppState, note: DailyNote) {
@@ -3604,5 +3695,229 @@ mod tests {
         };
         finalize_insert(&mut state);
         assert!(state.redo_stack.is_empty());
+    }
+
+    // --- format_roam_daily_title (via handle_daily_note_loaded) tests ---
+
+    fn make_empty_note(year: i32, month: u32, day: u32) -> DailyNote {
+        let date = NaiveDate::from_ymd_opt(year, month, day).unwrap();
+        DailyNote {
+            date,
+            uid: format!("{:02}-{:02}-{}", month, day, year),
+            title: String::new(),
+            blocks: vec![],
+        }
+    }
+
+    #[test]
+    fn daily_note_empty_title_generates_roam_title_february_25() {
+        let mut state = AppState::new("test", vec![]);
+        let note = make_empty_note(2026, 2, 25);
+        handle_daily_note_loaded(&mut state, note);
+        assert_eq!(state.days[0].title, "February 25th, 2026");
+    }
+
+    #[test]
+    fn daily_note_empty_title_generates_roam_title_january_1st() {
+        let mut state = AppState::new("test", vec![]);
+        let note = make_empty_note(2026, 1, 1);
+        handle_daily_note_loaded(&mut state, note);
+        assert_eq!(state.days[0].title, "January 1st, 2026");
+    }
+
+    #[test]
+    fn daily_note_empty_title_generates_roam_title_march_2nd() {
+        let mut state = AppState::new("test", vec![]);
+        let note = make_empty_note(2026, 3, 2);
+        handle_daily_note_loaded(&mut state, note);
+        assert_eq!(state.days[0].title, "March 2nd, 2026");
+    }
+
+    #[test]
+    fn daily_note_empty_title_generates_roam_title_april_3rd() {
+        let mut state = AppState::new("test", vec![]);
+        let note = make_empty_note(2026, 4, 3);
+        handle_daily_note_loaded(&mut state, note);
+        assert_eq!(state.days[0].title, "April 3rd, 2026");
+    }
+
+    #[test]
+    fn daily_note_empty_title_generates_roam_title_may_11th() {
+        let mut state = AppState::new("test", vec![]);
+        let note = make_empty_note(2026, 5, 11);
+        handle_daily_note_loaded(&mut state, note);
+        assert_eq!(state.days[0].title, "May 11th, 2026");
+    }
+
+    #[test]
+    fn daily_note_empty_title_generates_roam_title_21st() {
+        let mut state = AppState::new("test", vec![]);
+        let note = make_empty_note(2026, 6, 21);
+        handle_daily_note_loaded(&mut state, note);
+        assert_eq!(state.days[0].title, "June 21st, 2026");
+    }
+
+    #[test]
+    fn daily_note_empty_title_generates_roam_title_22nd() {
+        let mut state = AppState::new("test", vec![]);
+        let note = make_empty_note(2026, 7, 22);
+        handle_daily_note_loaded(&mut state, note);
+        assert_eq!(state.days[0].title, "July 22nd, 2026");
+    }
+
+    #[test]
+    fn daily_note_empty_title_generates_roam_title_23rd() {
+        let mut state = AppState::new("test", vec![]);
+        let note = make_empty_note(2026, 8, 23);
+        handle_daily_note_loaded(&mut state, note);
+        assert_eq!(state.days[0].title, "August 23rd, 2026");
+    }
+
+    #[test]
+    fn daily_note_non_empty_title_is_preserved() {
+        let mut state = AppState::new("test", vec![]);
+        let date = NaiveDate::from_ymd_opt(2026, 2, 25).unwrap();
+        let note = DailyNote {
+            date,
+            uid: "02-25-2026".into(),
+            title: "Existing Title".into(),
+            blocks: vec![],
+        };
+        handle_daily_note_loaded(&mut state, note);
+        assert_eq!(state.days[0].title, "Existing Title");
+    }
+
+    // --- CreateBlock on empty day tests ---
+
+    #[test]
+    fn create_block_on_empty_day_creates_first_block() {
+        let mut state = AppState::new("test", vec![]);
+        state.loading = false;
+        let day = DailyNote {
+            date: NaiveDate::from_ymd_opt(2026, 2, 25).unwrap(),
+            uid: "02-25-2026".into(),
+            title: "February 25th, 2026".into(),
+            blocks: vec![],
+        };
+        state.days = vec![day];
+
+        handle_action(&mut state, &Action::CreateBlock);
+
+        assert_eq!(state.days[0].blocks.len(), 1);
+        assert_eq!(state.selected_block, 0);
+        assert!(matches!(state.input_mode, InputMode::Insert { .. }));
+    }
+
+    #[test]
+    fn create_block_on_empty_day_sets_cursor_to_zero() {
+        let mut state = AppState::new("test", vec![]);
+        state.loading = false;
+        state.cursor_col = 5;
+        let day = DailyNote {
+            date: NaiveDate::from_ymd_opt(2026, 2, 25).unwrap(),
+            uid: "02-25-2026".into(),
+            title: "February 25th, 2026".into(),
+            blocks: vec![],
+        };
+        state.days = vec![day];
+
+        handle_action(&mut state, &Action::CreateBlock);
+
+        assert_eq!(state.cursor_col, 0);
+    }
+
+    #[test]
+    fn create_block_on_empty_day_uses_day_uid_as_parent() {
+        let mut state = AppState::new("test", vec![]);
+        state.loading = false;
+        let day = DailyNote {
+            date: NaiveDate::from_ymd_opt(2026, 2, 25).unwrap(),
+            uid: "02-25-2026".into(),
+            title: "February 25th, 2026".into(),
+            blocks: vec![],
+        };
+        state.days = vec![day];
+
+        handle_action(&mut state, &Action::CreateBlock);
+
+        match &state.input_mode {
+            InputMode::Insert { create_info, .. } => {
+                let info = create_info.as_ref().expect("expected create_info");
+                assert_eq!(info.parent_uid, "02-25-2026");
+                assert_eq!(info.order, 0);
+            }
+            _ => panic!("Expected Insert mode"),
+        }
+    }
+
+    // --- CursorLeft / CursorRight tests ---
+
+    #[test]
+    fn cursor_left_decrements_cursor_col() {
+        let mut state = test_state();
+        state.cursor_col = 3;
+        handle_action(&mut state, &Action::CursorLeft);
+        assert_eq!(state.cursor_col, 2);
+    }
+
+    #[test]
+    fn cursor_left_stops_at_zero() {
+        let mut state = test_state();
+        state.cursor_col = 0;
+        handle_action(&mut state, &Action::CursorLeft);
+        assert_eq!(state.cursor_col, 0);
+    }
+
+    #[test]
+    fn cursor_right_increments_cursor_col() {
+        let mut state = test_state();
+        // "Block one" has 9 chars, rendered_char_count allows up to index 8
+        state.cursor_col = 0;
+        handle_action(&mut state, &Action::CursorRight);
+        assert_eq!(state.cursor_col, 1);
+    }
+
+    #[test]
+    fn cursor_right_does_not_exceed_text_length() {
+        let mut state = test_state();
+        // "Block one" = 9 chars, max cursor_col = 8 (last char index)
+        state.cursor_col = 7;
+        handle_action(&mut state, &Action::CursorRight);
+        assert_eq!(state.cursor_col, 8);
+        // One more should not advance past the end
+        handle_action(&mut state, &Action::CursorRight);
+        assert_eq!(state.cursor_col, 8);
+    }
+
+    #[test]
+    fn cursor_right_on_empty_block_stays_at_zero() {
+        let mut state = AppState::new("test", vec![]);
+        state.loading = false;
+        let day = make_daily_note(2026, 2, 21, vec![make_block("b1", "", 0)]);
+        state.days = vec![day];
+        state.cursor_col = 0;
+        handle_action(&mut state, &Action::CursorRight);
+        assert_eq!(state.cursor_col, 0);
+    }
+
+    // --- cursor_col resets when selected_block changes tests ---
+
+    #[test]
+    fn move_up_resets_cursor_col() {
+        let mut state = test_state();
+        state.selected_block = 2;
+        state.cursor_col = 5;
+        handle_action(&mut state, &Action::MoveUp);
+        assert_eq!(state.cursor_col, 0);
+    }
+
+    #[test]
+    fn move_down_resets_cursor_col() {
+        let mut state = test_state();
+        state.selected_block = 0;
+        state.cursor_col = 4;
+        handle_action(&mut state, &Action::MoveDown);
+        assert_eq!(state.selected_block, 1);
+        assert_eq!(state.cursor_col, 0);
     }
 }

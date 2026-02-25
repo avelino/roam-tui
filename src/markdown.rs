@@ -3,6 +3,18 @@ use std::collections::HashMap;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 
+/// Count the number of rendered characters after markdown processing.
+///
+/// This computes how many visible characters a line of text produces
+/// after stripping markdown delimiters (**bold**, [[links]], etc.).
+pub fn rendered_char_count(text: &str) -> usize {
+    let base = Style::default();
+    render_spans(text, base)
+        .iter()
+        .map(|s| s.content.chars().count())
+        .sum()
+}
+
 /// Parse Roam-flavored inline markdown into styled ratatui Spans.
 ///
 /// Supports: **bold**, __italic__, [[page links]], ((block refs)), #tags,

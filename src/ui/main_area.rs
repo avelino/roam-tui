@@ -12,6 +12,7 @@ use crate::markdown;
 pub struct MainArea<'a> {
     pub days: &'a [DailyNote],
     pub selected_block: usize,
+    pub cursor_col: usize,
     pub loading: bool,
     pub loading_more: bool,
     pub edit_info: Option<EditInfo<'a>>,
@@ -181,6 +182,24 @@ fn flatten_blocks(
     }
 }
 
+/// Inject a block cursor (inverted color) at the given character position within spans.
+fn inject_cursor(spans: Vec<Span<'static>>, cursor_pos: usize) -> Vec<Span<'static>> {
+    let cursor_style = Style::default().fg(Color::Black).bg(Color::White);
+    let chars: Vec<(char, Style)> = spans
+        .iter()
+        .flat_map(|s| s.content.chars().map(move |c| (c, s.style)))
+        .collect();
+
+    if chars.is_empty() {
+        return vec![Span::styled(" ", cursor_style)];
+    }
+
+    let pos = cursor_pos.min(chars.len().saturating_sub(1));
+    let mut modified = chars;
+    modified[pos].1 = cursor_style;
+    chars_to_spans(&modified)
+}
+
 fn render_centered_message(msg: &str, area: Rect, buf: &mut Buffer) {
     if area.height > 0 {
         let line = Line::styled(msg, Style::default().fg(Color::DarkGray));
@@ -280,7 +299,7 @@ impl<'a> Widget for MainArea<'a> {
             return;
         }
 
-        if self.days.is_empty() || self.days.iter().all(|d| d.blocks.is_empty()) {
+        if self.days.is_empty() {
             render_centered_message(" No notes for today", area, buf);
             return;
         }
@@ -450,12 +469,27 @@ impl<'a> Widget for MainArea<'a> {
                         let cont_w = max_width.saturating_sub(cont_prefix_width);
                         let mut is_first_row = true;
 
+                        let mut rendered_char_offset = 0;
                         for text_line in text.split('\n') {
-                            let line_spans = markdown::render_spans_with_refs(
+                            let mut line_spans = markdown::render_spans_with_refs(
                                 text_line,
                                 style,
                                 Some(&block_map),
                             );
+
+                            // Inject cursor in normal mode for selected block
+                            if is_selected && self.edit_info.is_none() {
+                                let line_rendered_len: usize =
+                                    line_spans.iter().map(|s| s.content.chars().count()).sum();
+                                if self.cursor_col >= rendered_char_offset
+                                    && self.cursor_col - rendered_char_offset <= line_rendered_len
+                                {
+                                    let cursor_in_line = self.cursor_col - rendered_char_offset;
+                                    line_spans = inject_cursor(line_spans, cursor_in_line);
+                                }
+                                rendered_char_offset += line_rendered_len + 1;
+                            }
+
                             let w = if is_first_row { first_w } else { cont_w };
                             let wrapped = wrap_spans(line_spans, w, cont_w);
                             for (wrap_idx, wline) in wrapped.into_iter().enumerate() {
@@ -745,6 +779,7 @@ mod tests {
         let widget = MainArea {
             days: &[],
             selected_block: 0,
+            cursor_col: 0,
             loading: true,
             loading_more: false,
             edit_info: None,
@@ -764,6 +799,7 @@ mod tests {
         let widget = MainArea {
             days: &[],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -794,6 +830,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -821,6 +858,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 1,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -848,6 +886,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -944,6 +983,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -984,6 +1024,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1021,6 +1062,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1111,6 +1153,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1147,6 +1190,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1209,6 +1253,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1319,6 +1364,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1361,6 +1407,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1434,6 +1481,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1470,6 +1518,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1501,6 +1550,7 @@ mod tests {
         let widget = MainArea {
             days: &[day1, day2],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1536,6 +1586,7 @@ mod tests {
         let widget = MainArea {
             days: &[day],
             selected_block: 0,
+            cursor_col: 0,
             loading: false,
             loading_more: false,
             edit_info: None,
@@ -1557,5 +1608,140 @@ mod tests {
             "Non-selected should not have '▎', got: '{}'",
             line2
         );
+    }
+
+    // --- Empty day with blocks renders heading (no "No notes" message) ---
+
+    #[test]
+    fn day_with_blocks_renders_heading_not_no_notes_message() {
+        let area = Rect::new(0, 0, 40, 5);
+        let mut buf = Buffer::empty(area);
+
+        let day = make_daily_note(
+            "February 25th, 2026",
+            2026,
+            2,
+            25,
+            vec![make_block("b1", "Some block", 0)],
+        );
+
+        let widget = MainArea {
+            days: &[day],
+            selected_block: 0,
+            cursor_col: 0,
+            loading: false,
+            loading_more: false,
+            edit_info: None,
+            block_ref_cache: &HashMap::new(),
+        };
+        widget.render(area, &mut buf);
+
+        let no_notes_found =
+            (0..area.height).any(|y| read_line(&buf, y, area.width).contains("No notes"));
+        assert!(
+            !no_notes_found,
+            "Should not show 'No notes' when day has blocks"
+        );
+
+        let heading_found = (0..area.height)
+            .any(|y| read_line(&buf, y, area.width).contains("February 25th, 2026"));
+        assert!(heading_found, "Should render the day heading");
+    }
+
+    #[test]
+    fn day_with_empty_blocks_vec_renders_heading_not_no_notes() {
+        let area = Rect::new(0, 0, 40, 5);
+        let mut buf = Buffer::empty(area);
+
+        // days slice has one entry but no blocks — still renders heading, not "No notes"
+        let day = make_daily_note("February 25th, 2026", 2026, 2, 25, vec![]);
+
+        let widget = MainArea {
+            days: &[day],
+            selected_block: 0,
+            cursor_col: 0,
+            loading: false,
+            loading_more: false,
+            edit_info: None,
+            block_ref_cache: &HashMap::new(),
+        };
+        widget.render(area, &mut buf);
+
+        let no_notes_found =
+            (0..area.height).any(|y| read_line(&buf, y, area.width).contains("No notes"));
+        assert!(
+            !no_notes_found,
+            "Should not show 'No notes' when days slice is non-empty"
+        );
+
+        let heading_found = (0..area.height)
+            .any(|y| read_line(&buf, y, area.width).contains("February 25th, 2026"));
+        assert!(
+            heading_found,
+            "Should render the day heading even with no blocks"
+        );
+    }
+
+    // --- inject_cursor renders cursor character with inverted style ---
+
+    #[test]
+    fn inject_cursor_at_zero_inverts_first_char() {
+        let style = Style::default().fg(Color::Gray);
+        let spans = vec![Span::styled("hello", style)];
+        let result = inject_cursor(spans, 0);
+
+        let cursor_style = Style::default().fg(Color::Black).bg(Color::White);
+        // First char 'h' should have cursor style
+        assert_eq!(result[0].content.chars().next().unwrap(), 'h');
+        assert_eq!(result[0].style, cursor_style);
+    }
+
+    #[test]
+    fn inject_cursor_at_mid_inverts_correct_char() {
+        let style = Style::default().fg(Color::Gray);
+        let spans = vec![Span::styled("hello", style)];
+        let result = inject_cursor(spans, 2);
+
+        // Characters should be split: "he" | "l" (cursor) | "lo"
+        let all_chars: String = result.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(all_chars, "hello");
+
+        // Find the span containing the cursor char 'l' at position 2
+        let cursor_style = Style::default().fg(Color::Black).bg(Color::White);
+        let cursor_span = result.iter().find(|s| s.style == cursor_style);
+        assert!(cursor_span.is_some(), "Expected a span with cursor style");
+        assert_eq!(cursor_span.unwrap().content.as_ref(), "l");
+    }
+
+    #[test]
+    fn inject_cursor_on_empty_spans_returns_space_with_cursor_style() {
+        let result = inject_cursor(vec![], 0);
+        let cursor_style = Style::default().fg(Color::Black).bg(Color::White);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].content.as_ref(), " ");
+        assert_eq!(result[0].style, cursor_style);
+    }
+
+    #[test]
+    fn inject_cursor_out_of_bounds_clamps_to_last_char() {
+        let style = Style::default().fg(Color::Gray);
+        let spans = vec![Span::styled("abc", style)];
+        // Cursor position 99 is beyond text length, should clamp to last char 'c'
+        let result = inject_cursor(spans, 99);
+
+        let cursor_style = Style::default().fg(Color::Black).bg(Color::White);
+        let cursor_span = result.iter().find(|s| s.style == cursor_style);
+        assert!(cursor_span.is_some(), "Expected cursor style on last char");
+        assert_eq!(cursor_span.unwrap().content.as_ref(), "c");
+    }
+
+    #[test]
+    fn inject_cursor_preserves_all_chars() {
+        let style = Style::default().fg(Color::Gray);
+        let spans = vec![Span::styled("world", style)];
+        let result = inject_cursor(spans, 3);
+
+        let all_chars: String = result.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(all_chars, "world", "All characters must be preserved");
     }
 }

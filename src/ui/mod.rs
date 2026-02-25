@@ -39,6 +39,7 @@ pub fn render(frame: &mut Frame, state: &AppState) {
     let main = MainArea {
         days: &state.days,
         selected_block: state.selected_block,
+        cursor_col: state.cursor_col,
         loading: state.loading,
         loading_more: state.loading_more,
         edit_info,

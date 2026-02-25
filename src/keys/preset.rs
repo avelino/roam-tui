@@ -24,6 +24,8 @@ pub enum Action {
     CreateBlock,
     Undo,
     Redo,
+    CursorLeft,
+    CursorRight,
 }
 
 impl Action {
@@ -49,6 +51,8 @@ impl Action {
             "create_block" => Some(Self::CreateBlock),
             "undo" => Some(Self::Undo),
             "redo" => Some(Self::Redo),
+            "cursor_left" => Some(Self::CursorLeft),
+            "cursor_right" => Some(Self::CursorRight),
             _ => None,
         }
     }
@@ -75,6 +79,8 @@ impl Action {
             Self::CreateBlock => "new block",
             Self::Undo => "undo",
             Self::Redo => "redo",
+            Self::CursorLeft => "cursor ←",
+            Self::CursorRight => "cursor →",
         }
     }
 }
@@ -125,6 +131,8 @@ pub fn vim_preset() -> HashMap<KeyEvent, Action> {
     m.insert(shift(KeyCode::Char('G')), Action::GoDaily);
     m.insert(key(KeyCode::PageDown), Action::NextDay);
     m.insert(key(KeyCode::PageUp), Action::PrevDay);
+    m.insert(key(KeyCode::Left), Action::CursorLeft);
+    m.insert(key(KeyCode::Right), Action::CursorRight);
     m
 }
 
@@ -152,6 +160,8 @@ pub fn emacs_preset() -> HashMap<KeyEvent, Action> {
     m.insert(ctrl(KeyCode::Char('d')), Action::GoDaily);
     m.insert(key(KeyCode::PageDown), Action::NextDay);
     m.insert(key(KeyCode::PageUp), Action::PrevDay);
+    m.insert(key(KeyCode::Left), Action::CursorLeft);
+    m.insert(key(KeyCode::Right), Action::CursorRight);
     m
 }
 
@@ -159,8 +169,10 @@ pub fn vscode_preset() -> HashMap<KeyEvent, Action> {
     let mut m = HashMap::new();
     m.insert(key(KeyCode::Up), Action::MoveUp);
     m.insert(key(KeyCode::Down), Action::MoveDown);
-    m.insert(key(KeyCode::Left), Action::Collapse);
-    m.insert(key(KeyCode::Right), Action::Expand);
+    m.insert(key(KeyCode::Left), Action::CursorLeft);
+    m.insert(key(KeyCode::Right), Action::CursorRight);
+    m.insert(ctrl(KeyCode::Left), Action::Collapse);
+    m.insert(ctrl(KeyCode::Right), Action::Expand);
     m.insert(key(KeyCode::Enter), Action::Enter);
     m.insert(key(KeyCode::Esc), Action::Exit);
     m.insert(ctrl_shift(KeyCode::Char('f')), Action::Search);
@@ -370,5 +382,57 @@ mod tests {
     fn vscode_pageup_maps_to_prev_day() {
         let preset = vscode_preset();
         assert_eq!(preset.get(&key(KeyCode::PageUp)), Some(&Action::PrevDay));
+    }
+
+    // --- CursorLeft / CursorRight key mapping tests ---
+
+    #[test]
+    fn vim_left_maps_to_cursor_left() {
+        let preset = vim_preset();
+        assert_eq!(preset.get(&key(KeyCode::Left)), Some(&Action::CursorLeft));
+    }
+
+    #[test]
+    fn vim_right_maps_to_cursor_right() {
+        let preset = vim_preset();
+        assert_eq!(preset.get(&key(KeyCode::Right)), Some(&Action::CursorRight));
+    }
+
+    #[test]
+    fn vscode_left_maps_to_cursor_left_not_collapse() {
+        let preset = vscode_preset();
+        assert_eq!(preset.get(&key(KeyCode::Left)), Some(&Action::CursorLeft));
+        assert_ne!(preset.get(&key(KeyCode::Left)), Some(&Action::Collapse));
+    }
+
+    #[test]
+    fn vscode_right_maps_to_cursor_right_not_expand() {
+        let preset = vscode_preset();
+        assert_eq!(preset.get(&key(KeyCode::Right)), Some(&Action::CursorRight));
+        assert_ne!(preset.get(&key(KeyCode::Right)), Some(&Action::Expand));
+    }
+
+    #[test]
+    fn vscode_ctrl_left_maps_to_collapse() {
+        let preset = vscode_preset();
+        assert_eq!(preset.get(&ctrl(KeyCode::Left)), Some(&Action::Collapse));
+    }
+
+    #[test]
+    fn vscode_ctrl_right_maps_to_expand() {
+        let preset = vscode_preset();
+        assert_eq!(preset.get(&ctrl(KeyCode::Right)), Some(&Action::Expand));
+    }
+
+    #[test]
+    fn action_from_str_cursor_left_right() {
+        assert_eq!(Action::from_str("cursor_left"), Some(Action::CursorLeft));
+        assert_eq!(Action::from_str("cursor_right"), Some(Action::CursorRight));
+    }
+
+    #[test]
+    fn action_hint_text_cursor_left_right() {
+        assert!(!Action::CursorLeft.hint_text().is_empty());
+        assert!(!Action::CursorRight.hint_text().is_empty());
     }
 }
