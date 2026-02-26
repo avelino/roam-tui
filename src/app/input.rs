@@ -98,6 +98,11 @@ pub fn handle_search_key(state: &mut AppState, key: &KeyEvent) {
 // --- Insert mode key handling ---
 
 pub fn handle_insert_key(state: &mut AppState, key: &KeyEvent) -> Option<WriteAction> {
+    // Handle slash menu input when active
+    if state.slash_menu.is_some() {
+        return handle_slash_menu_key(state, key);
+    }
+
     // Handle autocomplete input when active
     if state.autocomplete.is_some() {
         return handle_autocomplete_key(state, key);
@@ -163,6 +168,13 @@ pub fn handle_insert_key(state: &mut AppState, key: &KeyEvent) -> Option<WriteAc
             query: String::new(),
             results,
             selected: 0,
+        });
+    } else if let Some(slash_pos) = super::slash::detect_trigger(buffer) {
+        state.slash_menu = Some(super::slash::SlashMenuState {
+            query: String::new(),
+            commands: super::slash::all_commands(),
+            selected: 0,
+            slash_pos,
         });
     }
 
@@ -252,6 +264,65 @@ fn confirm_autocomplete(state: &mut AppState) -> Option<WriteAction> {
 
     let replacement = format!("(({})) ", uid);
     buffer.replace_range(start, end, &replacement);
+    None
+}
+
+fn handle_slash_menu_key(state: &mut AppState, key: &KeyEvent) -> Option<WriteAction> {
+    match (key.modifiers, key.code) {
+        (KeyModifiers::NONE, KeyCode::Esc) => {
+            state.slash_menu = None;
+        }
+        (KeyModifiers::NONE, KeyCode::Up) => {
+            if let Some(sm) = &mut state.slash_menu {
+                sm.selected = sm.selected.saturating_sub(1);
+            }
+        }
+        (KeyModifiers::NONE, KeyCode::Down) => {
+            if let Some(sm) = &mut state.slash_menu {
+                if !sm.commands.is_empty() && sm.selected < sm.commands.len() - 1 {
+                    sm.selected += 1;
+                }
+            }
+        }
+        (KeyModifiers::NONE, KeyCode::Enter) => {
+            return confirm_slash_command(state);
+        }
+        (KeyModifiers::NONE, KeyCode::Backspace) => {
+            let should_close = state
+                .slash_menu
+                .as_ref()
+                .is_some_and(|sm| sm.query.is_empty());
+            if should_close {
+                state.slash_menu = None;
+            } else if let Some(sm) = &mut state.slash_menu {
+                sm.query.pop();
+                sm.commands = super::slash::filter(&sm.query);
+                sm.selected = sm.selected.min(sm.commands.len().saturating_sub(1));
+            }
+        }
+        (KeyModifiers::NONE, KeyCode::Char(ch)) | (KeyModifiers::SHIFT, KeyCode::Char(ch)) => {
+            if let Some(sm) = &mut state.slash_menu {
+                sm.query.push(ch);
+                sm.commands = super::slash::filter(&sm.query);
+                sm.selected = sm.selected.min(sm.commands.len().saturating_sub(1));
+            }
+        }
+        _ => {}
+    }
+    None
+}
+
+fn confirm_slash_command(state: &mut AppState) -> Option<WriteAction> {
+    let sm = state.slash_menu.take()?;
+    let cmd = sm.commands.get(sm.selected)?.clone();
+
+    let buffer = match &mut state.input_mode {
+        InputMode::Insert { buffer, .. } => buffer,
+        InputMode::Normal => return None,
+    };
+
+    // Query chars live in sm.query, not in the buffer — buffer still has just "/"
+    super::slash::execute::execute(&cmd.action, buffer, sm.slash_pos, 0);
     None
 }
 

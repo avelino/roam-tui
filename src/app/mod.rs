@@ -1,8 +1,9 @@
 mod actions;
-mod blocks;
+pub(crate) mod blocks;
 mod input;
 mod nav;
 mod search;
+pub(crate) mod slash;
 mod state;
 mod tasks;
 mod undo;
@@ -2867,5 +2868,164 @@ mod tests {
         handle_page_loaded(&mut state, note);
         assert!(!state.loading);
         assert_eq!(state.days.len(), 1);
+    }
+
+    // --- Slash menu tests ---
+
+    /// Helper: enter insert mode and type " /" to open the slash menu.
+    /// The space ensures '/' triggers (trigger requires start-of-buffer or whitespace).
+    fn open_slash_menu(state: &mut AppState) {
+        enter_insert_mode(state);
+        handle_insert_key(state, &key_event(KeyCode::Char(' ')));
+        handle_insert_key(state, &key_event(KeyCode::Char('/')));
+    }
+
+    #[test]
+    fn typing_slash_opens_slash_menu() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        assert!(state.slash_menu.is_some());
+        let sm = state.slash_menu.as_ref().unwrap();
+        assert_eq!(sm.query, "");
+        assert_eq!(sm.selected, 0);
+        assert_eq!(sm.commands.len(), 18);
+    }
+
+    #[test]
+    fn slash_menu_filters_by_query() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('t')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('o')));
+        let sm = state.slash_menu.as_ref().unwrap();
+        assert_eq!(sm.query, "to");
+        let names: Vec<&str> = sm.commands.iter().map(|c| c.name).collect();
+        assert!(names.contains(&"todo"));
+        assert!(names.contains(&"tomorrow"));
+    }
+
+    #[test]
+    fn slash_menu_navigate_up_down() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        assert_eq!(state.slash_menu.as_ref().unwrap().selected, 0);
+        handle_insert_key(&mut state, &key_event(KeyCode::Down));
+        assert_eq!(state.slash_menu.as_ref().unwrap().selected, 1);
+        handle_insert_key(&mut state, &key_event(KeyCode::Down));
+        assert_eq!(state.slash_menu.as_ref().unwrap().selected, 2);
+        handle_insert_key(&mut state, &key_event(KeyCode::Up));
+        assert_eq!(state.slash_menu.as_ref().unwrap().selected, 1);
+        handle_insert_key(&mut state, &key_event(KeyCode::Up));
+        assert_eq!(state.slash_menu.as_ref().unwrap().selected, 0);
+        handle_insert_key(&mut state, &key_event(KeyCode::Up));
+        assert_eq!(state.slash_menu.as_ref().unwrap().selected, 0);
+    }
+
+    #[test]
+    fn slash_menu_esc_closes() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        handle_insert_key(&mut state, &key_event(KeyCode::Esc));
+        assert!(state.slash_menu.is_none());
+        assert!(matches!(state.input_mode, InputMode::Insert { .. }));
+    }
+
+    #[test]
+    fn slash_menu_backspace_on_empty_closes() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        handle_insert_key(&mut state, &key_event(KeyCode::Backspace));
+        assert!(state.slash_menu.is_none());
+    }
+
+    #[test]
+    fn slash_menu_backspace_with_query() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('h')));
+        assert_eq!(state.slash_menu.as_ref().unwrap().query, "h");
+        handle_insert_key(&mut state, &key_event(KeyCode::Backspace));
+        assert!(state.slash_menu.is_some());
+        assert_eq!(state.slash_menu.as_ref().unwrap().query, "");
+    }
+
+    #[test]
+    fn slash_menu_enter_executes_todo() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        handle_insert_key(&mut state, &key_event(KeyCode::Enter));
+        assert!(state.slash_menu.is_none());
+        match &state.input_mode {
+            InputMode::Insert { buffer, .. } => {
+                assert!(buffer.to_string().starts_with("{{[[TODO]]}} "));
+            }
+            _ => panic!("Expected Insert mode"),
+        }
+    }
+
+    #[test]
+    fn slash_menu_enter_executes_hr() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('h')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('r')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Enter));
+        assert!(state.slash_menu.is_none());
+        match &state.input_mode {
+            InputMode::Insert { buffer, .. } => {
+                assert!(buffer.to_string().contains("---"));
+            }
+            _ => panic!("Expected Insert mode"),
+        }
+    }
+
+    #[test]
+    fn slash_menu_enter_executes_bold() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('b')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('o')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('l')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('d')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Enter));
+        assert!(state.slash_menu.is_none());
+        match &state.input_mode {
+            InputMode::Insert { buffer, .. } => {
+                assert!(buffer.to_string().contains("****"));
+            }
+            _ => panic!("Expected Insert mode"),
+        }
+    }
+
+    #[test]
+    fn slash_no_trigger_in_url() {
+        let mut state = test_state();
+        enter_insert_mode(&mut state);
+        for ch in "http:/".chars() {
+            handle_insert_key(&mut state, &key_event(KeyCode::Char(ch)));
+        }
+        assert!(state.slash_menu.is_none());
+    }
+
+    #[test]
+    fn slash_trigger_after_space() {
+        let mut state = test_state();
+        enter_insert_mode(&mut state);
+        handle_insert_key(&mut state, &key_event(KeyCode::Char(' ')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('/')));
+        assert!(state.slash_menu.is_some());
+    }
+
+    #[test]
+    fn slash_menu_down_wraps_at_end() {
+        let mut state = test_state();
+        open_slash_menu(&mut state);
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('l')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('a')));
+        handle_insert_key(&mut state, &key_event(KeyCode::Char('t')));
+        assert_eq!(state.slash_menu.as_ref().unwrap().commands.len(), 1);
+        assert_eq!(state.slash_menu.as_ref().unwrap().selected, 0);
+        handle_insert_key(&mut state, &key_event(KeyCode::Down));
+        assert_eq!(state.slash_menu.as_ref().unwrap().selected, 0);
     }
 }
