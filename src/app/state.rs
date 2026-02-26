@@ -122,6 +122,7 @@ pub struct AppState {
     pub link_picker: Option<LinkPickerState>,
     pub error_popup: Option<ErrorPopup>,
     pub linked_refs: HashMap<String, LinkedRefsState>,
+    pub slash_menu: Option<super::slash::SlashMenuState>,
 }
 
 impl AppState {
@@ -155,6 +156,7 @@ impl AppState {
             link_picker: None,
             error_popup: None,
             linked_refs: HashMap::new(),
+            slash_menu: None,
         }
     }
 

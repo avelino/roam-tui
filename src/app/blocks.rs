@@ -341,7 +341,7 @@ pub(super) fn generate_uid() -> String {
     format!("tui-{:x}", nanos)
 }
 
-pub(super) fn format_roam_daily_title(date: NaiveDate) -> String {
+pub(crate) fn format_roam_daily_title(date: NaiveDate) -> String {
     let month = match date.month() {
         1 => "January",
         2 => "February",

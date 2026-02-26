@@ -8,6 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block as WidgetBlock, BorderType, Borders, Clear};
 use ratatui::Frame;
 
+use crate::app::slash::SlashMenuState;
 use crate::app::{AppState, AutocompleteState, InputMode, LinkPickerState, SearchState, ViewMode};
 use crate::error::ErrorPopup;
 
@@ -55,6 +56,10 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
     if let Some(ac) = &state.autocomplete {
         render_autocomplete_popup(frame, ac, chunks[1]);
+    }
+
+    if let Some(sm) = &state.slash_menu {
+        render_slash_menu_popup(frame, sm, chunks[1]);
     }
 
     if let Some(lp) = &state.link_picker {
@@ -339,6 +344,104 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
         lines.push(String::new());
     }
     lines
+}
+
+fn render_slash_menu_popup(frame: &mut Frame, sm: &SlashMenuState, area: Rect) {
+    let max_visible = 10;
+    let visible_count = if sm.commands.is_empty() {
+        1
+    } else {
+        max_visible.min(sm.commands.len())
+    };
+    let popup_height = (visible_count + 2) as u16;
+    let popup_width = (area.width * 65 / 100).max(30).min(area.width);
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.y + area.height / 2).min(area.y + area.height.saturating_sub(popup_height));
+
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+    frame.render_widget(Clear, popup_area);
+
+    let title = if sm.query.is_empty() {
+        " / Commands ".to_string()
+    } else {
+        format!(" /{} ", sm.query)
+    };
+
+    let block = WidgetBlock::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Green))
+        .title(title);
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if sm.commands.is_empty() {
+        let style = Style::default().fg(Color::DarkGray);
+        let line = Line::from(vec![Span::styled("No matching commands", style)]);
+        let line_area = Rect::new(inner.x, inner.y, inner.width, 1);
+        frame.render_widget(line, line_area);
+        return;
+    }
+
+    let scroll_offset = if sm.selected >= max_visible {
+        sm.selected - max_visible + 1
+    } else {
+        0
+    };
+
+    let name_col_width = 16;
+
+    for (i, cmd) in sm
+        .commands
+        .iter()
+        .skip(scroll_offset)
+        .take(visible_count)
+        .enumerate()
+    {
+        if i as u16 >= inner.height {
+            break;
+        }
+        let is_selected = (i + scroll_offset) == sm.selected;
+        let (name_style, desc_style) = if is_selected {
+            (
+                Style::default().fg(Color::White).bg(Color::DarkGray),
+                Style::default().fg(Color::Gray).bg(Color::DarkGray),
+            )
+        } else {
+            (
+                Style::default().fg(Color::Green),
+                Style::default().fg(Color::DarkGray),
+            )
+        };
+
+        let name_display: String = format!("/{}", cmd.name)
+            .chars()
+            .take(name_col_width)
+            .collect();
+        let name_padding = name_col_width.saturating_sub(name_display.chars().count());
+        let name_padded = format!("{}{}", name_display, " ".repeat(name_padding));
+
+        let desc_width = (inner.width as usize).saturating_sub(name_col_width + 1);
+        let desc_display: String = cmd.description.chars().take(desc_width).collect();
+        let desc_padding = desc_width.saturating_sub(desc_display.chars().count());
+        let desc_padded = format!("{}{}", desc_display, " ".repeat(desc_padding));
+
+        let line = Line::from(vec![
+            Span::styled(name_padded, name_style),
+            Span::styled(
+                " ",
+                if is_selected {
+                    Style::default().bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                },
+            ),
+            Span::styled(desc_padded, desc_style),
+        ]);
+        let line_area = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
+        frame.render_widget(line, line_area);
+    }
 }
 
 fn render_search_popup(frame: &mut Frame, search: &SearchState, area: Rect) {
