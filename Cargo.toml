@@ -1,9 +1,17 @@
 [package]
-name = "roam-tui"
+name = "roam-sdk"
 version = "0.1.0"
 edition = "2021"
-description = "A terminal UI client for Roam Research"
+description = "Roam Research SDK and terminal UI client"
 license = "MIT"
+repository = "https://github.com/avelino/roam-tui"
+readme = "README.md"
+keywords = ["roam", "roam-research", "sdk", "api-client"]
+categories = ["api-bindings"]
+
+[lib]
+name = "roam_sdk"
+path = "src/lib.rs"
 
 [[bin]]
 name = "roam"

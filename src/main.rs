@@ -1,8 +1,9 @@
-mod api;
+// Re-export SDK modules so binary-internal modules can use crate::api:: and crate::error::
+pub(crate) use roam_sdk::{api, error};
+
 mod app;
 mod config;
 mod edit_buffer;
-mod error;
 mod highlight;
 mod keys;
 mod markdown;

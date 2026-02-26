@@ -1,0 +1,42 @@
+name: Publish Crate
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: publish
+          save-if: false
+
+      - name: Verify lib builds
+        run: cargo build --lib
+
+      - name: Run lib tests
+        run: cargo test --lib
+
+      - name: Dry-run publish
+        run: cargo publish --dry-run
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish

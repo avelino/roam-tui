@@ -1816,7 +1816,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "roam-tui"
+name = "roam-sdk"
 version = "0.1.0"
 dependencies = [
  "chrono",
