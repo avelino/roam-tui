@@ -2,7 +2,7 @@ name: Publish Crate
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
   publish:
     needs: validate
     runs-on: ubuntu-latest
-    environment: crates-io
+    environment: ci
     steps:
       - uses: actions/checkout@v4
 

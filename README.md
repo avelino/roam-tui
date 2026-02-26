@@ -1,6 +1,11 @@
 # roam-tui
 
-A fast, keyboard-driven terminal client for [Roam Research](https://roamresearch.com). Navigate, edit, and search your knowledge graph without leaving the terminal.
+[![Docs](https://img.shields.io/badge/docs-roam--tui.avelino.run-blue)](https://roam-tui.avelino.run)
+[![Crates.io](https://img.shields.io/crates/v/roam-sdk)](https://crates.io/crates/roam-sdk)
+
+A fast, keyboard-driven terminal client and Rust SDK for [Roam Research](https://roamresearch.com). Navigate, edit, and search your knowledge graph without leaving the terminal — or use the SDK to build your own tools.
+
+**[Documentation](https://roam-tui.avelino.run)** | **[crates.io](https://crates.io/crates/roam-sdk)**
 
 ```
 ┌─────────────────────────────────────────────────────────┐
