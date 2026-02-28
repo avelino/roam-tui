@@ -11,9 +11,10 @@ use super::nav::{
     navigate_to_page, push_nav_snapshot, restore_nav_snapshot, save_nav_snapshot_at_index,
 };
 use super::search::{filter_blocks, SEARCH_LIMIT};
+use super::search::{filter_page_titles, QUICK_SWITCHER_LIMIT};
 use super::state::{
     count_blocks_recursive, AppState, CreateInfo, InputMode, LinkPickerState, LinkedRefItem,
-    LoadRequest, SearchState, ViewMode, ViewSnapshot,
+    LoadRequest, QuickSwitcherState, SearchState, ViewMode, ViewSnapshot,
 };
 
 pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadRequest> {
@@ -358,6 +359,21 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
                 state.nav_index += 1;
                 restore_nav_snapshot(state);
             }
+            None
+        }
+        Action::QuickSwitcher => {
+            let filtered = if !state.page_title_cache.is_empty() {
+                filter_page_titles(&state.page_title_cache, "", QUICK_SWITCHER_LIMIT)
+            } else {
+                Vec::new()
+            };
+            state.quick_switcher = Some(QuickSwitcherState {
+                query: String::new(),
+                filtered,
+                selected: 0,
+                debounce_ticks: 0,
+                fetching: false,
+            });
             None
         }
         _ => None,

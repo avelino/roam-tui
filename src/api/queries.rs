@@ -22,6 +22,10 @@ pub fn linked_refs_query(page_title: &str) -> String {
     )
 }
 
+pub fn all_page_titles_query() -> String {
+    "[:find ?title ?uid :where [?e :node/title ?title] [?e :block/uid ?uid]]".to_string()
+}
+
 fn page_selector() -> String {
     "[:block/uid :node/title :block/string {:block/children [:block/uid :block/string :block/order :block/open {:block/refs [:block/uid :node/title :block/string]} {:block/children ...}]}]".to_string()
 }
@@ -109,6 +113,17 @@ mod tests {
         assert!(q.contains(":block/string"));
         assert!(q.contains(":block/uid"));
         assert!(q.contains(":block/page"));
+    }
+
+    #[test]
+    fn all_page_titles_query_contains_expected_clauses() {
+        let q = all_page_titles_query();
+        assert!(q.contains("?title"));
+        assert!(q.contains("?uid"));
+        assert!(q.contains(":node/title"));
+        assert!(q.contains(":block/uid"));
+        assert!(q.contains(":find"));
+        assert!(q.contains(":where"));
     }
 
     #[test]

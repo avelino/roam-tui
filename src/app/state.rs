@@ -50,6 +50,15 @@ pub enum ViewMode {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct QuickSwitcherState {
+    pub query: String,
+    pub filtered: Vec<(String, String)>, // (title, uid)
+    pub selected: usize,
+    pub debounce_ticks: u8,
+    pub fetching: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct LinkPickerState {
     pub links: Vec<String>,
     pub selected: usize,
@@ -90,6 +99,7 @@ pub enum AppMessage {
     RefreshLoaded(DailyNote),
     BlockRefResolved(String, String),              // (uid, text)
     LinkedRefsLoaded(String, Vec<LinkedRefGroup>), // (page_title, groups)
+    PageTitlesLoaded(Vec<(String, String)>),       // (title, uid)
     ApiError(crate::error::ErrorInfo),
     Tick,
 }
@@ -123,6 +133,8 @@ pub struct AppState {
     pub error_popup: Option<ErrorPopup>,
     pub linked_refs: HashMap<String, LinkedRefsState>,
     pub slash_menu: Option<super::slash::SlashMenuState>,
+    pub quick_switcher: Option<QuickSwitcherState>,
+    pub(super) page_title_cache: Vec<(String, String)>,
 }
 
 impl AppState {
@@ -157,6 +169,8 @@ impl AppState {
             error_popup: None,
             linked_refs: HashMap::new(),
             slash_menu: None,
+            quick_switcher: None,
+            page_title_cache: Vec::new(),
         }
     }
 

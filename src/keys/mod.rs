@@ -30,7 +30,18 @@ impl KeybindingMap {
     }
 
     pub fn resolve(&self, key: &KeyEvent) -> Option<&Action> {
-        self.bindings.get(key)
+        self.bindings.get(key).or_else(|| {
+            // On terminals with enhanced keyboard protocol (macOS), the received
+            // KeyEvent may carry extra kind/state fields that prevent a direct
+            // HashMap match. Fall back to matching only code + modifiers.
+            self.bindings.iter().find_map(|(k, v)| {
+                if k.code == key.code && k.modifiers == key.modifiers {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
+        })
     }
 
     pub fn hints(&self) -> Vec<(String, &'static str)> {
@@ -171,5 +182,19 @@ mod tests {
     fn format_key_event_arrow() {
         let key = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
         assert_eq!(format_key_event(&key), "↑");
+    }
+
+    #[test]
+    fn resolve_matches_despite_extra_state_bits() {
+        use crossterm::event::{KeyEventKind, KeyEventState};
+        let map = KeybindingMap::from_preset("vim", &HashMap::new()).unwrap();
+        // Simulate terminal sending Ctrl+T with extra state bits (e.g. CAPS_LOCK)
+        let key = KeyEvent {
+            code: KeyCode::Char('t'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::CAPS_LOCK,
+        };
+        assert_eq!(map.resolve(&key), Some(&Action::QuickSwitcher));
     }
 }

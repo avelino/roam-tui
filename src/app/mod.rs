@@ -11,10 +11,13 @@ pub use state::*;
 
 use actions::handle_action;
 use blocks::generate_uid;
-use input::{handle_delete_block, handle_insert_key, handle_link_picker_key, handle_search_key};
+use input::{
+    handle_delete_block, handle_insert_key, handle_link_picker_key, handle_quick_switcher_key,
+    handle_search_key,
+};
 use tasks::{
     collect_unresolved_refs, spawn_fetch_daily_note, spawn_fetch_linked_refs, spawn_fetch_page,
-    spawn_refresh_daily_note, spawn_resolve_block_refs, spawn_write,
+    spawn_fetch_page_titles, spawn_refresh_daily_note, spawn_resolve_block_refs, spawn_write,
 };
 use undo::{apply_redo, apply_undo};
 
@@ -200,6 +203,12 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
         if let Some(msg) = rx.recv().await {
             match msg {
                 AppMessage::Key(key) => {
+                    // DEBUG: show raw key in header
+                    state.date_display = format!(
+                        "{:?}+{:?}",
+                        key.code, key.modifiers
+                    );
+
                     if state.error_popup.is_some() {
                         state.error_popup = None;
                     } else if state.show_help {
@@ -207,6 +216,10 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
                         state.show_help = false;
                     } else if state.link_picker.is_some() {
                         if let Some(req) = handle_link_picker_key(&mut state, &key) {
+                            dispatch_load_request(req, &client, &tx);
+                        }
+                    } else if state.quick_switcher.is_some() {
+                        if let Some(req) = handle_quick_switcher_key(&mut state, &key) {
                             dispatch_load_request(req, &client, &tx);
                         }
                     } else if state.search.is_some() {
@@ -277,7 +290,31 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
                 AppMessage::RefreshLoaded(note) => {
                     handle_refresh_loaded(&mut state, note);
                 }
+                AppMessage::PageTitlesLoaded(titles) => {
+                    state.page_title_cache = titles;
+                    if let Some(qs) = &mut state.quick_switcher {
+                        qs.fetching = false;
+                        let query = qs.query.clone();
+                        qs.filtered = search::filter_page_titles(
+                            &state.page_title_cache,
+                            &query,
+                            search::QUICK_SWITCHER_LIMIT,
+                        );
+                        qs.selected = qs.selected.min(qs.filtered.len().saturating_sub(1));
+                    }
+                }
                 AppMessage::Tick => {
+                    // Quick Switcher debounce
+                    if let Some(qs) = &mut state.quick_switcher {
+                        if qs.debounce_ticks > 0 {
+                            qs.debounce_ticks -= 1;
+                            if qs.debounce_ticks == 0 && !qs.fetching && !qs.query.is_empty() {
+                                qs.fetching = true;
+                                spawn_fetch_page_titles(&client, &tx);
+                            }
+                        }
+                    }
+
                     if state.input_mode != InputMode::Normal
                         || state.view_mode != ViewMode::DailyNotes
                     {
@@ -308,11 +345,13 @@ mod tests {
     use super::actions::handle_action;
     use super::blocks::*;
     use super::input::{
-        finalize_insert, handle_delete_block, handle_insert_key, handle_search_key,
+        finalize_insert, handle_delete_block, handle_insert_key, handle_quick_switcher_key,
+        handle_search_key,
     };
     use super::nav::navigate_to_page;
     use super::search::{
-        detect_block_ref_trigger, filter_blocks, AUTOCOMPLETE_LIMIT, SEARCH_LIMIT,
+        detect_block_ref_trigger, filter_blocks, filter_page_titles, AUTOCOMPLETE_LIMIT,
+        QUICK_SWITCHER_LIMIT, SEARCH_LIMIT,
     };
     use super::tasks::extract_uids_from_text;
     use super::test_helpers::*;
@@ -3027,5 +3066,174 @@ mod tests {
         assert_eq!(state.slash_menu.as_ref().unwrap().selected, 0);
         handle_insert_key(&mut state, &key_event(KeyCode::Down));
         assert_eq!(state.slash_menu.as_ref().unwrap().selected, 0);
+    }
+
+    // --- Quick Switcher tests ---
+
+    fn sample_page_titles() -> Vec<(String, String)> {
+        vec![
+            ("Alpha".into(), "uid1".into()),
+            ("Beta".into(), "uid2".into()),
+            ("Gamma".into(), "uid3".into()),
+            ("Daily Notes".into(), "uid4".into()),
+            ("Algorithms".into(), "uid5".into()),
+        ]
+    }
+
+    #[test]
+    fn filter_page_titles_empty_query_returns_all() {
+        let titles = sample_page_titles();
+        let result = filter_page_titles(&titles, "", 50);
+        assert_eq!(result.len(), 5);
+    }
+
+    #[test]
+    fn filter_page_titles_prefix_match_ranks_first() {
+        let titles = sample_page_titles();
+        let result = filter_page_titles(&titles, "al", 50);
+        // "Alpha" and "Algorithms" are prefix matches
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].0, "Alpha");
+        assert_eq!(result[1].0, "Algorithms");
+    }
+
+    #[test]
+    fn filter_page_titles_case_insensitive() {
+        let titles = sample_page_titles();
+        let result = filter_page_titles(&titles, "BETA", 50);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "Beta");
+    }
+
+    #[test]
+    fn filter_page_titles_no_match_returns_empty() {
+        let titles = sample_page_titles();
+        let result = filter_page_titles(&titles, "zzz", 50);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn filter_page_titles_respects_limit() {
+        let titles = sample_page_titles();
+        let result = filter_page_titles(&titles, "", 2);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn quick_switcher_action_opens_popup() {
+        let mut state = test_state();
+        assert!(state.quick_switcher.is_none());
+        handle_action(&mut state, &Action::QuickSwitcher);
+        assert!(state.quick_switcher.is_some());
+        let qs = state.quick_switcher.as_ref().unwrap();
+        assert_eq!(qs.query, "");
+        assert_eq!(qs.selected, 0);
+        assert!(qs.filtered.is_empty()); // no cache yet
+    }
+
+    #[test]
+    fn quick_switcher_action_with_cache_populates_filtered() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        let qs = state.quick_switcher.as_ref().unwrap();
+        assert_eq!(qs.filtered.len(), 5);
+    }
+
+    #[test]
+    fn quick_switcher_esc_closes() {
+        let mut state = test_state();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        assert!(state.quick_switcher.is_some());
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Esc));
+        assert!(state.quick_switcher.is_none());
+    }
+
+    #[test]
+    fn quick_switcher_typing_filters_from_cache() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Char('b')));
+        let qs = state.quick_switcher.as_ref().unwrap();
+        assert_eq!(qs.query, "b");
+        assert_eq!(qs.filtered.len(), 1);
+        assert_eq!(qs.filtered[0].0, "Beta");
+    }
+
+    #[test]
+    fn quick_switcher_typing_resets_debounce() {
+        let mut state = test_state();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Char('t')));
+        let qs = state.quick_switcher.as_ref().unwrap();
+        assert_eq!(qs.debounce_ticks, 2);
+    }
+
+    #[test]
+    fn quick_switcher_enter_navigates_to_page() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        let req = handle_quick_switcher_key(&mut state, &key_event(KeyCode::Enter));
+        assert!(req.is_some());
+        assert_eq!(req.unwrap(), LoadRequest::Page("Alpha".into()));
+        assert!(state.quick_switcher.is_none());
+    }
+
+    #[test]
+    fn quick_switcher_up_down_changes_selection() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        assert_eq!(state.quick_switcher.as_ref().unwrap().selected, 0);
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Down));
+        assert_eq!(state.quick_switcher.as_ref().unwrap().selected, 1);
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Down));
+        assert_eq!(state.quick_switcher.as_ref().unwrap().selected, 2);
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Up));
+        assert_eq!(state.quick_switcher.as_ref().unwrap().selected, 1);
+    }
+
+    #[test]
+    fn quick_switcher_up_at_zero_stays_zero() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Up));
+        assert_eq!(state.quick_switcher.as_ref().unwrap().selected, 0);
+    }
+
+    #[test]
+    fn quick_switcher_backspace_on_empty_query_closes() {
+        let mut state = test_state();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Backspace));
+        assert!(state.quick_switcher.is_none());
+    }
+
+    #[test]
+    fn quick_switcher_backspace_removes_char() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Char('b')));
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Char('e')));
+        assert_eq!(state.quick_switcher.as_ref().unwrap().query, "be");
+        handle_quick_switcher_key(&mut state, &key_event(KeyCode::Backspace));
+        let qs = state.quick_switcher.as_ref().unwrap();
+        assert_eq!(qs.query, "b");
+        assert_eq!(qs.filtered.len(), 1);
+    }
+
+    #[test]
+    fn quick_switcher_enter_on_empty_does_nothing() {
+        let mut state = test_state();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        // No cache, no filtered items
+        let req = handle_quick_switcher_key(&mut state, &key_event(KeyCode::Enter));
+        assert!(req.is_none());
+        // Popup closed after take()
+        assert!(state.quick_switcher.is_none());
     }
 }

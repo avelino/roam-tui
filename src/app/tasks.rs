@@ -220,6 +220,33 @@ pub(super) fn spawn_resolve_block_refs(
     }
 }
 
+pub(super) fn spawn_fetch_page_titles(client: &RoamClient, tx: &mpsc::UnboundedSender<AppMessage>) {
+    let query = queries::all_page_titles_query();
+    let client_clone = client.clone();
+    let tx_clone = tx.clone();
+    tokio::spawn(async move {
+        match client_clone.query(query, vec![]).await {
+            Ok(resp) => {
+                let mut titles: Vec<(String, String)> = Vec::new();
+                for row in &resp.result {
+                    if row.len() >= 2 {
+                        let title = row[0].as_str().unwrap_or("").to_string();
+                        let uid = row[1].as_str().unwrap_or("").to_string();
+                        if !title.is_empty() {
+                            titles.push((title, uid));
+                        }
+                    }
+                }
+                titles.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+                let _ = tx_clone.send(AppMessage::PageTitlesLoaded(titles));
+            }
+            Err(e) => {
+                let _ = tx_clone.send(AppMessage::ApiError(ErrorInfo::from_roam_error(&e)));
+            }
+        }
+    });
+}
+
 pub(super) fn spawn_refresh_daily_note(
     client: &RoamClient,
     date: NaiveDate,
