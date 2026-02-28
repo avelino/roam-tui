@@ -9,7 +9,9 @@ use super::blocks::{
     remove_block_from_days, resolve_block_at_index, update_block_text_in_days,
 };
 use super::nav::navigate_to_page;
-use super::search::{filter_blocks, AUTOCOMPLETE_LIMIT, SEARCH_LIMIT};
+use super::search::{
+    filter_blocks, filter_page_titles, AUTOCOMPLETE_LIMIT, QUICK_SWITCHER_LIMIT, SEARCH_LIMIT,
+};
 use super::state::{AppState, AutocompleteState, CreateInfo, InputMode, LoadRequest, UndoEntry};
 
 // --- Link picker key handling ---
@@ -93,6 +95,74 @@ pub fn handle_search_key(state: &mut AppState, key: &KeyEvent) {
         }
         _ => {}
     }
+}
+
+// --- Quick Switcher key handling ---
+
+pub(super) fn handle_quick_switcher_key(
+    state: &mut AppState,
+    key: &KeyEvent,
+) -> Option<LoadRequest> {
+    match (key.modifiers, key.code) {
+        (KeyModifiers::NONE, KeyCode::Esc) => {
+            state.quick_switcher = None;
+        }
+        (KeyModifiers::NONE, KeyCode::Up) => {
+            if let Some(qs) = &mut state.quick_switcher {
+                qs.selected = qs.selected.saturating_sub(1);
+            }
+        }
+        (KeyModifiers::NONE, KeyCode::Down) => {
+            if let Some(qs) = &mut state.quick_switcher {
+                if !qs.filtered.is_empty() && qs.selected < qs.filtered.len() - 1 {
+                    qs.selected += 1;
+                }
+            }
+        }
+        (KeyModifiers::NONE, KeyCode::Enter) => {
+            if let Some(qs) = state.quick_switcher.take() {
+                if let Some((title, _)) = qs.filtered.get(qs.selected) {
+                    return Some(navigate_to_page(state, title.clone()));
+                }
+            }
+        }
+        (KeyModifiers::NONE, KeyCode::Backspace) => {
+            let should_close = state
+                .quick_switcher
+                .as_ref()
+                .is_some_and(|qs| qs.query.is_empty());
+            if should_close {
+                state.quick_switcher = None;
+            } else if let Some(qs) = &mut state.quick_switcher {
+                qs.query.pop();
+                qs.debounce_ticks = 2;
+                if !state.page_title_cache.is_empty() {
+                    qs.filtered = filter_page_titles(
+                        &state.page_title_cache,
+                        &qs.query,
+                        QUICK_SWITCHER_LIMIT,
+                    );
+                    qs.selected = qs.selected.min(qs.filtered.len().saturating_sub(1));
+                }
+            }
+        }
+        (KeyModifiers::NONE, KeyCode::Char(c)) | (KeyModifiers::SHIFT, KeyCode::Char(c)) => {
+            if let Some(qs) = &mut state.quick_switcher {
+                qs.query.push(c);
+                qs.debounce_ticks = 2;
+                if !state.page_title_cache.is_empty() {
+                    qs.filtered = filter_page_titles(
+                        &state.page_title_cache,
+                        &qs.query,
+                        QUICK_SWITCHER_LIMIT,
+                    );
+                    qs.selected = qs.selected.min(qs.filtered.len().saturating_sub(1));
+                }
+            }
+        }
+        _ => {}
+    }
+    None
 }
 
 // --- Insert mode key handling ---

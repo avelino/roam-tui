@@ -5,6 +5,7 @@ use crate::edit_buffer::EditBuffer;
 
 pub(super) const AUTOCOMPLETE_LIMIT: usize = 20;
 pub(super) const SEARCH_LIMIT: usize = 50;
+pub(super) const QUICK_SWITCHER_LIMIT: usize = 50;
 
 pub fn detect_block_ref_trigger(buffer: &EditBuffer) -> bool {
     let c = buffer.cursor;
@@ -48,6 +49,33 @@ pub fn filter_blocks(
     }
     results.truncate(limit);
     results
+}
+
+pub fn filter_page_titles(
+    titles: &[(String, String)],
+    query: &str,
+    limit: usize,
+) -> Vec<(String, String)> {
+    if query.is_empty() {
+        return titles.iter().take(limit).cloned().collect();
+    }
+    let query_lower = query.to_lowercase();
+    let mut prefix_matches: Vec<(String, String)> = Vec::new();
+    let mut contains_matches: Vec<(String, String)> = Vec::new();
+    for (title, uid) in titles {
+        let title_lower = title.to_lowercase();
+        if title_lower.starts_with(&query_lower) {
+            prefix_matches.push((title.clone(), uid.clone()));
+        } else if title_lower.contains(&query_lower) {
+            contains_matches.push((title.clone(), uid.clone()));
+        }
+        if prefix_matches.len() + contains_matches.len() >= limit {
+            break;
+        }
+    }
+    prefix_matches.extend(contains_matches);
+    prefix_matches.truncate(limit);
+    prefix_matches
 }
 
 fn collect_matching_blocks(

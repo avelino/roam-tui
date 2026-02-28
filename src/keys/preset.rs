@@ -125,7 +125,7 @@ pub fn vim_preset() -> HashMap<KeyEvent, Action> {
     m.insert(key(KeyCode::Char('q')), Action::Quit);
     m.insert(key(KeyCode::Char('b')), Action::ToggleSidebar);
     m.insert(key(KeyCode::Char('?')), Action::Help);
-    m.insert(ctrl(KeyCode::Char('p')), Action::QuickSwitcher);
+    m.insert(ctrl(KeyCode::Char('k')), Action::QuickSwitcher);
     m.insert(key(KeyCode::Tab), Action::Indent);
     m.insert(shift(KeyCode::BackTab), Action::Unindent);
     m.insert(key(KeyCode::Char('i')), Action::EditBlock);
@@ -177,6 +177,7 @@ pub fn emacs_preset() -> HashMap<KeyEvent, Action> {
     m.insert(shift(KeyCode::Right), Action::NavForward);
     m.insert(alt(KeyCode::Char('[')), Action::NavBack);
     m.insert(alt(KeyCode::Char(']')), Action::NavForward);
+    m.insert(alt(KeyCode::Char('u')), Action::QuickSwitcher);
     m
 }
 
@@ -195,6 +196,7 @@ pub fn vscode_preset() -> HashMap<KeyEvent, Action> {
     m.insert(ctrl(KeyCode::Char('b')), Action::ToggleSidebar);
     m.insert(key(KeyCode::F(1)), Action::Help);
     m.insert(ctrl(KeyCode::Char('p')), Action::QuickSwitcher);
+    m.insert(ctrl(KeyCode::Char('k')), Action::QuickSwitcher);
     m.insert(ctrl(KeyCode::Char('d')), Action::GoDaily);
     m.insert(key(KeyCode::Tab), Action::Indent);
     m.insert(shift(KeyCode::BackTab), Action::Unindent);
@@ -545,10 +547,28 @@ mod tests {
     }
 
     #[test]
-    fn vim_quick_switcher_moved_to_ctrl_p() {
+    fn vim_ctrl_t_maps_to_quick_switcher() {
         let preset = vim_preset();
         assert_eq!(
-            preset.get(&ctrl(KeyCode::Char('p'))),
+            preset.get(&ctrl(KeyCode::Char('t'))),
+            Some(&Action::QuickSwitcher)
+        );
+    }
+
+    #[test]
+    fn vscode_ctrl_t_maps_to_quick_switcher() {
+        let preset = vscode_preset();
+        assert_eq!(
+            preset.get(&ctrl(KeyCode::Char('t'))),
+            Some(&Action::QuickSwitcher)
+        );
+    }
+
+    #[test]
+    fn emacs_alt_u_maps_to_quick_switcher() {
+        let preset = emacs_preset();
+        assert_eq!(
+            preset.get(&alt(KeyCode::Char('u'))),
             Some(&Action::QuickSwitcher)
         );
     }

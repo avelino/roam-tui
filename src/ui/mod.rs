@@ -9,7 +9,10 @@ use ratatui::widgets::{Block as WidgetBlock, BorderType, Borders, Clear};
 use ratatui::Frame;
 
 use crate::app::slash::SlashMenuState;
-use crate::app::{AppState, AutocompleteState, InputMode, LinkPickerState, SearchState, ViewMode};
+use crate::app::{
+    AppState, AutocompleteState, InputMode, LinkPickerState, QuickSwitcherState, SearchState,
+    ViewMode,
+};
 use crate::error::ErrorPopup;
 
 use header::Header;
@@ -64,6 +67,10 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
     if let Some(lp) = &state.link_picker {
         render_link_picker_popup(frame, lp, chunks[1]);
+    }
+
+    if let Some(qs) = &state.quick_switcher {
+        render_quick_switcher_popup(frame, qs, chunks[1]);
     }
 
     if let Some(search) = &state.search {
@@ -439,6 +446,85 @@ fn render_slash_menu_popup(frame: &mut Frame, sm: &SlashMenuState, area: Rect) {
             ),
             Span::styled(desc_padded, desc_style),
         ]);
+        let line_area = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
+        frame.render_widget(line, line_area);
+    }
+}
+
+fn render_quick_switcher_popup(frame: &mut Frame, qs: &QuickSwitcherState, area: Rect) {
+    let max_visible = 10;
+    let visible_count = if qs.filtered.is_empty() {
+        1
+    } else {
+        max_visible.min(qs.filtered.len())
+    };
+    let popup_height = (visible_count + 2) as u16;
+    let popup_width = (area.width * 80 / 100).max(30).min(area.width);
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.y + area.height / 2).min(area.y + area.height.saturating_sub(popup_height));
+
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+    frame.render_widget(Clear, popup_area);
+
+    let title = if qs.query.is_empty() {
+        " Quick Switcher ".to_string()
+    } else {
+        format!(" Quick Switcher: {} ", qs.query)
+    };
+
+    let block = WidgetBlock::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Magenta))
+        .title(title);
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    if qs.filtered.is_empty() {
+        let msg = if qs.fetching {
+            "Searching..."
+        } else if qs.query.is_empty() {
+            "Type to search..."
+        } else {
+            "No results"
+        };
+        let style = Style::default().fg(Color::DarkGray);
+        let line = Line::from(vec![Span::styled(msg, style)]);
+        let line_area = Rect::new(inner.x, inner.y, inner.width, 1);
+        frame.render_widget(line, line_area);
+        return;
+    }
+
+    let scroll_offset = if qs.selected >= max_visible {
+        qs.selected - max_visible + 1
+    } else {
+        0
+    };
+
+    for (i, (title, _)) in qs
+        .filtered
+        .iter()
+        .skip(scroll_offset)
+        .take(visible_count)
+        .enumerate()
+    {
+        if i as u16 >= inner.height {
+            break;
+        }
+        let is_selected = (i + scroll_offset) == qs.selected;
+        let style = if is_selected {
+            Style::default().fg(Color::White).bg(Color::DarkGray)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+
+        let max_text_width = inner.width as usize;
+        let display: String = title.chars().take(max_text_width).collect();
+        let padding = max_text_width.saturating_sub(display.chars().count());
+        let padded = format!("{}{}", display, " ".repeat(padding));
+
+        let line = Line::from(vec![Span::styled(padded, style)]);
         let line_area = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
         frame.render_widget(line, line_area);
     }
