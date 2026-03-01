@@ -61,6 +61,43 @@ impl KeybindingMap {
         }
         hints
     }
+
+    pub fn all_hints(&self) -> Vec<(String, &'static str)> {
+        let display_order = [
+            Action::MoveUp,
+            Action::MoveDown,
+            Action::CursorLeft,
+            Action::CursorRight,
+            Action::Collapse,
+            Action::Expand,
+            Action::Enter,
+            Action::Exit,
+            Action::EditBlock,
+            Action::CreateBlock,
+            Action::Search,
+            Action::QuickSwitcher,
+            Action::Indent,
+            Action::Unindent,
+            Action::Undo,
+            Action::Redo,
+            Action::NavBack,
+            Action::NavForward,
+            Action::GoDaily,
+            Action::NextDay,
+            Action::PrevDay,
+            Action::ToggleSidebar,
+            Action::Help,
+            Action::Quit,
+        ];
+
+        let mut hints = Vec::new();
+        for action in &display_order {
+            if let Some((key_event, _)) = self.bindings.iter().find(|(_, a)| *a == action) {
+                hints.push((format_key_event(key_event), action.hint_text()));
+            }
+        }
+        hints
+    }
 }
 
 fn format_key_event(key: &KeyEvent) -> String {
@@ -164,6 +201,22 @@ mod tests {
         let hint_labels: Vec<&str> = hints.iter().map(|(_, label)| *label).collect();
         assert!(hint_labels.contains(&"quit"));
         assert!(hint_labels.contains(&"search"));
+    }
+
+    #[test]
+    fn all_hints_includes_all_actions() {
+        let map = KeybindingMap::from_preset("vim", &HashMap::new()).unwrap();
+        let all = map.all_hints();
+        let labels: Vec<&str> = all.iter().map(|(_, label)| *label).collect();
+        assert!(labels.contains(&"back"));
+        assert!(labels.contains(&"forward"));
+        assert!(labels.contains(&"quit"));
+        assert!(labels.contains(&"search"));
+        assert!(labels.contains(&"edit"));
+        assert!(labels.contains(&"undo"));
+        assert!(labels.contains(&"redo"));
+        assert!(labels.contains(&"switcher"));
+        assert!(all.len() > map.hints().len());
     }
 
     #[test]

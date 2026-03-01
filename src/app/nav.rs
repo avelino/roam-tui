@@ -56,5 +56,6 @@ pub(super) fn restore_nav_snapshot(state: &mut AppState) {
         state.loading_more = false;
         state.linked_refs.clear();
         state.status_message = None;
+        state.needs_linked_refs_refresh = true;
     }
 }

@@ -157,7 +157,11 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
     let keybindings =
         KeybindingMap::from_preset(&config.keybindings.preset, &config.keybindings.bindings)?;
 
-    let mut state = AppState::new(&config.graph.name, keybindings.hints());
+    let mut state = AppState::new(
+        &config.graph.name,
+        keybindings.hints(),
+        keybindings.all_hints(),
+    );
 
     let (tx, mut rx) = mpsc::unbounded_channel::<AppMessage>();
 
@@ -224,6 +228,21 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
                         }
                     } else {
                         handle_normal_key(&mut state, &key, &keybindings, &client, &tx);
+                        if state.needs_linked_refs_refresh {
+                            state.needs_linked_refs_refresh = false;
+                            for day in &state.days {
+                                let title = day.title.clone();
+                                state.linked_refs.insert(
+                                    title.clone(),
+                                    LinkedRefsState {
+                                        groups: vec![],
+                                        collapsed: false,
+                                        loading: true,
+                                    },
+                                );
+                                spawn_fetch_linked_refs(&client, &title, &tx);
+                            }
+                        }
                     }
                 }
                 AppMessage::DailyNoteLoaded(note) => {
@@ -560,7 +579,7 @@ mod tests {
 
     #[test]
     fn edit_block_on_empty_days_does_nothing() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = false;
         handle_action(&mut state, &Action::EditBlock);
         assert_eq!(state.input_mode, InputMode::Normal);
@@ -811,7 +830,7 @@ mod tests {
 
     #[test]
     fn delete_on_empty_days_returns_none() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = false;
         let action = handle_delete_block(&mut state);
         assert!(action.is_none());
@@ -1477,7 +1496,7 @@ mod tests {
 
     #[test]
     fn new_state_starts_loading() {
-        let state = AppState::new("my-graph", vec![]);
+        let state = AppState::new("my-graph", vec![], vec![]);
         assert!(state.loading);
         assert_eq!(state.graph_name, "my-graph");
         assert_eq!(state.selected_block, 0);
@@ -1541,7 +1560,7 @@ mod tests {
 
     #[test]
     fn move_down_on_empty_days_does_nothing() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = false;
         handle_action(&mut state, &Action::MoveDown);
         assert_eq!(state.selected_block, 0);
@@ -1549,7 +1568,7 @@ mod tests {
 
     #[test]
     fn daily_note_loaded_updates_state() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         assert!(state.loading);
 
         let note = make_daily_note(2026, 2, 21, vec![make_block("b1", "Hello", 0)]);
@@ -1562,7 +1581,7 @@ mod tests {
 
     #[test]
     fn daily_note_loaded_maintains_chronological_order() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = false;
 
         let day20 = make_daily_note(2026, 2, 20, vec![make_block("a", "A", 0)]);
@@ -1580,7 +1599,7 @@ mod tests {
 
     #[test]
     fn handle_api_error_sets_popup() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = true;
         let info = crate::error::ErrorInfo::Api {
             status: 429,
@@ -1596,7 +1615,7 @@ mod tests {
 
     #[test]
     fn handle_api_error_clears_loading() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = true;
         state.loading_more = true;
         let info = crate::error::ErrorInfo::Network("timeout".into());
@@ -1608,13 +1627,13 @@ mod tests {
 
     #[test]
     fn date_display_is_populated() {
-        let state = AppState::new("test", vec![]);
+        let state = AppState::new("test", vec![], vec![]);
         assert!(!state.date_display.is_empty());
     }
 
     #[test]
     fn flat_block_count_with_nested_children() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = false;
 
         let parent = Block {
@@ -2269,7 +2288,7 @@ mod tests {
 
     #[test]
     fn daily_note_empty_title_generates_roam_title_february_25() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         let note = make_empty_note(2026, 2, 25);
         handle_daily_note_loaded(&mut state, note);
         assert_eq!(state.days[0].title, "February 25th, 2026");
@@ -2277,7 +2296,7 @@ mod tests {
 
     #[test]
     fn daily_note_empty_title_generates_roam_title_january_1st() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         let note = make_empty_note(2026, 1, 1);
         handle_daily_note_loaded(&mut state, note);
         assert_eq!(state.days[0].title, "January 1st, 2026");
@@ -2285,7 +2304,7 @@ mod tests {
 
     #[test]
     fn daily_note_empty_title_generates_roam_title_march_2nd() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         let note = make_empty_note(2026, 3, 2);
         handle_daily_note_loaded(&mut state, note);
         assert_eq!(state.days[0].title, "March 2nd, 2026");
@@ -2293,7 +2312,7 @@ mod tests {
 
     #[test]
     fn daily_note_empty_title_generates_roam_title_april_3rd() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         let note = make_empty_note(2026, 4, 3);
         handle_daily_note_loaded(&mut state, note);
         assert_eq!(state.days[0].title, "April 3rd, 2026");
@@ -2301,7 +2320,7 @@ mod tests {
 
     #[test]
     fn daily_note_empty_title_generates_roam_title_may_11th() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         let note = make_empty_note(2026, 5, 11);
         handle_daily_note_loaded(&mut state, note);
         assert_eq!(state.days[0].title, "May 11th, 2026");
@@ -2309,7 +2328,7 @@ mod tests {
 
     #[test]
     fn daily_note_empty_title_generates_roam_title_21st() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         let note = make_empty_note(2026, 6, 21);
         handle_daily_note_loaded(&mut state, note);
         assert_eq!(state.days[0].title, "June 21st, 2026");
@@ -2317,7 +2336,7 @@ mod tests {
 
     #[test]
     fn daily_note_empty_title_generates_roam_title_22nd() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         let note = make_empty_note(2026, 7, 22);
         handle_daily_note_loaded(&mut state, note);
         assert_eq!(state.days[0].title, "July 22nd, 2026");
@@ -2325,7 +2344,7 @@ mod tests {
 
     #[test]
     fn daily_note_empty_title_generates_roam_title_23rd() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         let note = make_empty_note(2026, 8, 23);
         handle_daily_note_loaded(&mut state, note);
         assert_eq!(state.days[0].title, "August 23rd, 2026");
@@ -2333,7 +2352,7 @@ mod tests {
 
     #[test]
     fn daily_note_non_empty_title_is_preserved() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         let date = NaiveDate::from_ymd_opt(2026, 2, 25).unwrap();
         let note = DailyNote {
             date,
@@ -2349,7 +2368,7 @@ mod tests {
 
     #[test]
     fn create_block_on_empty_day_creates_first_block() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = false;
         let day = DailyNote {
             date: NaiveDate::from_ymd_opt(2026, 2, 25).unwrap(),
@@ -2368,7 +2387,7 @@ mod tests {
 
     #[test]
     fn create_block_on_empty_day_sets_cursor_to_zero() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = false;
         state.cursor_col = 5;
         let day = DailyNote {
@@ -2386,7 +2405,7 @@ mod tests {
 
     #[test]
     fn create_block_on_empty_day_uses_day_uid_as_parent() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = false;
         let day = DailyNote {
             date: NaiveDate::from_ymd_opt(2026, 2, 25).unwrap(),
@@ -2449,7 +2468,7 @@ mod tests {
 
     #[test]
     fn cursor_right_on_empty_block_stays_at_zero() {
-        let mut state = AppState::new("test", vec![]);
+        let mut state = AppState::new("test", vec![], vec![]);
         state.loading = false;
         let day = make_daily_note(2026, 2, 21, vec![make_block("b1", "", 0)]);
         state.days = vec![day];
@@ -2722,6 +2741,89 @@ mod tests {
             state.loading = false;
         }
         assert!(state.nav_history.len() <= 50);
+    }
+
+    #[test]
+    fn can_nav_back_false_when_no_history() {
+        let state = test_state();
+        assert!(!state.can_nav_back());
+    }
+
+    #[test]
+    fn can_nav_back_true_after_page_navigation() {
+        let mut state = test_state();
+        state.days[0].blocks[0].string = "[[Target]]".to_string();
+        state.selected_block = 0;
+        handle_action(&mut state, &Action::Enter);
+        assert!(state.can_nav_back());
+    }
+
+    #[test]
+    fn can_nav_forward_false_at_end() {
+        let mut state = test_state();
+        state.days[0].blocks[0].string = "[[Target]]".to_string();
+        state.selected_block = 0;
+        handle_action(&mut state, &Action::Enter);
+        // At the end of history — no forward
+        assert!(!state.can_nav_forward());
+    }
+
+    #[test]
+    fn can_nav_forward_true_after_back() {
+        let mut state = test_state();
+        state.days[0].blocks[0].string = "[[Target]]".to_string();
+        state.selected_block = 0;
+        handle_action(&mut state, &Action::Enter);
+        // Simulate page load
+        state.days = vec![make_daily_note(
+            2000,
+            1,
+            1,
+            vec![make_block("p1", "Page block", 0)],
+        )];
+        state.loading = false;
+        // Go back
+        handle_action(&mut state, &Action::NavBack);
+        assert!(state.can_nav_forward());
+    }
+
+    #[test]
+    fn nav_back_sets_needs_linked_refs_refresh() {
+        let mut state = test_state();
+        state.days[0].blocks[0].string = "[[Target]]".to_string();
+        state.selected_block = 0;
+        handle_action(&mut state, &Action::Enter);
+        // Simulate page load
+        state.days = vec![make_daily_note(
+            2000,
+            1,
+            1,
+            vec![make_block("p1", "Page block", 0)],
+        )];
+        state.loading = false;
+        assert!(!state.needs_linked_refs_refresh);
+        handle_action(&mut state, &Action::NavBack);
+        assert!(state.needs_linked_refs_refresh);
+    }
+
+    #[test]
+    fn nav_forward_sets_needs_linked_refs_refresh() {
+        let mut state = test_state();
+        state.days[0].blocks[0].string = "[[Target]]".to_string();
+        state.selected_block = 0;
+        handle_action(&mut state, &Action::Enter);
+        // Simulate page load
+        state.days = vec![make_daily_note(
+            2000,
+            1,
+            1,
+            vec![make_block("p1", "Page block", 0)],
+        )];
+        state.loading = false;
+        handle_action(&mut state, &Action::NavBack);
+        state.needs_linked_refs_refresh = false;
+        handle_action(&mut state, &Action::NavForward);
+        assert!(state.needs_linked_refs_refresh);
     }
 
     #[test]

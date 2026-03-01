@@ -78,7 +78,7 @@ pub fn render(frame: &mut Frame, state: &AppState) {
     }
 
     if state.show_help {
-        render_help_popup(frame, &state.hints, chunks[1]);
+        render_help_popup(frame, &state.help_hints, chunks[1]);
     }
 
     if let Some(err) = &state.error_popup {
@@ -86,10 +86,22 @@ pub fn render(frame: &mut Frame, state: &AppState) {
     }
 
     let insert_mode = !matches!(state.input_mode, InputMode::Normal);
+    let nav_back_hint = if state.can_nav_back() {
+        Some("Shift+\u{2190}")
+    } else {
+        None
+    };
+    let nav_forward_hint = if state.can_nav_forward() {
+        Some("Shift+\u{2192}")
+    } else {
+        None
+    };
     let status = StatusBar {
         hints: &state.hints,
         message: state.status_message.as_deref(),
         insert_mode,
+        nav_back_hint,
+        nav_forward_hint,
     };
     frame.render_widget(status, chunks[2]);
 }

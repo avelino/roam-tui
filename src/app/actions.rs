@@ -331,13 +331,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
             None
         }
         Action::NavBack => {
-            let can_go_back = if state.nav_index == state.nav_history.len() {
-                // Current view is unsaved — can go back if there's any history
-                !state.nav_history.is_empty()
-            } else {
-                state.nav_index > 0
-            };
-            if can_go_back {
+            if state.can_nav_back() {
                 // Save current view: push if at end, or update in place
                 if state.nav_index == state.nav_history.len() {
                     state.nav_history.push(ViewSnapshot {
@@ -354,7 +348,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
             None
         }
         Action::NavForward => {
-            if state.nav_index + 1 < state.nav_history.len() {
+            if state.can_nav_forward() {
                 save_nav_snapshot_at_index(state);
                 state.nav_index += 1;
                 restore_nav_snapshot(state);
