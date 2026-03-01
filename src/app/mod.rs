@@ -203,12 +203,6 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
         if let Some(msg) = rx.recv().await {
             match msg {
                 AppMessage::Key(key) => {
-                    // DEBUG: show raw key in header
-                    state.date_display = format!(
-                        "{:?}+{:?}",
-                        key.code, key.modifiers
-                    );
-
                     if state.error_popup.is_some() {
                         state.error_popup = None;
                     } else if state.show_help {

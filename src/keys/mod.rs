@@ -188,9 +188,9 @@ mod tests {
     fn resolve_matches_despite_extra_state_bits() {
         use crossterm::event::{KeyEventKind, KeyEventState};
         let map = KeybindingMap::from_preset("vim", &HashMap::new()).unwrap();
-        // Simulate terminal sending Ctrl+T with extra state bits (e.g. CAPS_LOCK)
+        // Simulate terminal sending Ctrl+K with extra state bits (e.g. CAPS_LOCK)
         let key = KeyEvent {
-            code: KeyCode::Char('t'),
+            code: KeyCode::Char('k'),
             modifiers: KeyModifiers::CONTROL,
             kind: KeyEventKind::Press,
             state: KeyEventState::CAPS_LOCK,

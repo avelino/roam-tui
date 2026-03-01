@@ -547,19 +547,19 @@ mod tests {
     }
 
     #[test]
-    fn vim_ctrl_t_maps_to_quick_switcher() {
+    fn vim_ctrl_k_maps_to_quick_switcher() {
         let preset = vim_preset();
         assert_eq!(
-            preset.get(&ctrl(KeyCode::Char('t'))),
+            preset.get(&ctrl(KeyCode::Char('k'))),
             Some(&Action::QuickSwitcher)
         );
     }
 
     #[test]
-    fn vscode_ctrl_t_maps_to_quick_switcher() {
+    fn vscode_ctrl_k_maps_to_quick_switcher() {
         let preset = vscode_preset();
         assert_eq!(
-            preset.get(&ctrl(KeyCode::Char('t'))),
+            preset.get(&ctrl(KeyCode::Char('k'))),
             Some(&Action::QuickSwitcher)
         );
     }
