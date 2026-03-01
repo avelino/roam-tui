@@ -247,9 +247,22 @@ pub async fn run(config: &AppConfig, terminal: &mut DefaultTerminal) -> Result<(
                     }
                 }
                 AppMessage::PageLoaded(note) => {
+                    let page_title = note.title.clone();
+                    let page_uid = note.uid.clone();
                     handle_page_loaded(&mut state, note);
                     let unresolved = collect_unresolved_refs(&state);
                     spawn_resolve_block_refs(&client, unresolved, &mut state, &tx);
+
+                    // Add newly created page to cache for future Quick Switcher searches
+                    if !page_title.is_empty()
+                        && !state.page_title_cache.iter().any(|(t, _)| t == &page_title)
+                    {
+                        state.page_title_cache.push((page_title.clone(), page_uid));
+                        state
+                            .page_title_cache
+                            .sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+                    }
+
                     // Fetch linked refs for page view
                     if let ViewMode::Page { ref title } = state.view_mode {
                         let title = title.clone();
@@ -343,7 +356,9 @@ mod tests {
         handle_search_key,
     };
     use super::nav::navigate_to_page;
-    use super::search::{detect_block_ref_trigger, filter_blocks, filter_page_titles};
+    use super::search::{
+        detect_block_ref_trigger, filter_blocks, filter_page_titles, has_exact_match,
+    };
     use super::tasks::extract_uids_from_text;
     use super::test_helpers::*;
     use super::undo::{apply_redo, apply_undo};
@@ -3111,6 +3126,22 @@ mod tests {
     }
 
     #[test]
+    fn has_exact_match_returns_true_case_insensitive() {
+        let titles = sample_page_titles();
+        assert!(has_exact_match(&titles, "Alpha"));
+        assert!(has_exact_match(&titles, "alpha"));
+        assert!(has_exact_match(&titles, "ALPHA"));
+    }
+
+    #[test]
+    fn has_exact_match_returns_false_for_partial() {
+        let titles = sample_page_titles();
+        assert!(!has_exact_match(&titles, "Alph"));
+        assert!(!has_exact_match(&titles, "zzz"));
+        assert!(!has_exact_match(&titles, ""));
+    }
+
+    #[test]
     fn quick_switcher_action_opens_popup() {
         let mut state = test_state();
         assert!(state.quick_switcher.is_none());
@@ -3148,8 +3179,11 @@ mod tests {
         handle_quick_switcher_key(&mut state, &key_event(KeyCode::Char('b')));
         let qs = state.quick_switcher.as_ref().unwrap();
         assert_eq!(qs.query, "b");
-        assert_eq!(qs.filtered.len(), 1);
+        // "Beta" match + "b" create entry (no exact match)
+        assert_eq!(qs.filtered.len(), 2);
         assert_eq!(qs.filtered[0].0, "Beta");
+        assert_eq!(qs.filtered[1].0, "b");
+        assert!(qs.filtered[1].1.is_empty()); // create sentinel
     }
 
     #[test]
@@ -3214,7 +3248,118 @@ mod tests {
         handle_quick_switcher_key(&mut state, &key_event(KeyCode::Backspace));
         let qs = state.quick_switcher.as_ref().unwrap();
         assert_eq!(qs.query, "b");
+        // "Beta" match + "b" create entry
+        assert_eq!(qs.filtered.len(), 2);
+    }
+
+    #[test]
+    fn page_title_cache_updated_on_new_page() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        assert!(!state.page_title_cache.iter().any(|(t, _)| t == "NewPage"));
+
+        let note = DailyNote {
+            date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
+            uid: "new-uid".into(),
+            title: "NewPage".into(),
+            blocks: vec![],
+        };
+        let page_title = note.title.clone();
+        let page_uid = note.uid.clone();
+        handle_page_loaded(&mut state, note);
+
+        // Simulate the cache update logic from the event loop
+        if !page_title.is_empty() && !state.page_title_cache.iter().any(|(t, _)| t == &page_title) {
+            state.page_title_cache.push((page_title.clone(), page_uid));
+            state
+                .page_title_cache
+                .sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+        }
+
+        assert!(state.page_title_cache.iter().any(|(t, _)| t == "NewPage"));
+    }
+
+    #[test]
+    fn page_title_cache_not_duplicated_on_existing_page() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        let initial_len = state.page_title_cache.len();
+
+        let note = DailyNote {
+            date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
+            uid: "uid1".into(),
+            title: "Alpha".into(),
+            blocks: vec![],
+        };
+        let page_title = note.title.clone();
+        let page_uid = note.uid.clone();
+        handle_page_loaded(&mut state, note);
+
+        if !page_title.is_empty() && !state.page_title_cache.iter().any(|(t, _)| t == &page_title) {
+            state.page_title_cache.push((page_title, page_uid));
+        }
+
+        assert_eq!(state.page_title_cache.len(), initial_len);
+    }
+
+    #[test]
+    fn quick_switcher_appends_create_when_no_exact_match() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        // Type "new page" — no match at all
+        for c in "new page".chars() {
+            handle_quick_switcher_key(&mut state, &key_event(KeyCode::Char(c)));
+        }
+        let qs = state.quick_switcher.as_ref().unwrap();
+        assert_eq!(qs.filtered.len(), 1); // only create entry
+        assert_eq!(qs.filtered[0].0, "new page");
+        assert!(qs.filtered[0].1.is_empty()); // empty uid = create sentinel
+    }
+
+    #[test]
+    fn quick_switcher_no_create_when_exact_match() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        // Type "Beta" — exact match exists
+        for c in "Beta".chars() {
+            handle_quick_switcher_key(&mut state, &key_event(KeyCode::Char(c)));
+        }
+        let qs = state.quick_switcher.as_ref().unwrap();
+        // Should have "Beta" but no create entry
         assert_eq!(qs.filtered.len(), 1);
+        assert_eq!(qs.filtered[0].0, "Beta");
+        assert!(!qs.filtered[0].1.is_empty()); // has uid
+    }
+
+    #[test]
+    fn quick_switcher_no_create_when_exact_match_case_insensitive() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        // Type "beta" — case-insensitive exact match
+        for c in "beta".chars() {
+            handle_quick_switcher_key(&mut state, &key_event(KeyCode::Char(c)));
+        }
+        let qs = state.quick_switcher.as_ref().unwrap();
+        assert_eq!(qs.filtered.len(), 1);
+        assert_eq!(qs.filtered[0].0, "Beta");
+        assert!(!qs.filtered[0].1.is_empty());
+    }
+
+    #[test]
+    fn quick_switcher_create_entry_navigates() {
+        let mut state = test_state();
+        state.page_title_cache = sample_page_titles();
+        handle_action(&mut state, &Action::QuickSwitcher);
+        for c in "NewPage".chars() {
+            handle_quick_switcher_key(&mut state, &key_event(KeyCode::Char(c)));
+        }
+        // Select the create entry (only item)
+        let req = handle_quick_switcher_key(&mut state, &key_event(KeyCode::Enter));
+        assert!(req.is_some());
+        assert_eq!(req.unwrap(), LoadRequest::Page("NewPage".into()));
     }
 
     #[test]

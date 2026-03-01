@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 
 use crate::api::client::RoamClient;
 use crate::api::queries;
-use crate::api::types::{Block, DailyNote, WriteAction};
+use crate::api::types::{Block, DailyNote, PageCreate, WriteAction};
 use crate::error::ErrorInfo;
 use crate::markdown;
 
@@ -46,7 +46,6 @@ pub(super) fn spawn_fetch_page(
     tokio::spawn(async move {
         match client_clone.pull(eid, &selector).await {
             Ok(resp) => {
-                // Use a dummy date — the page is not date-based
                 let dummy_date = chrono::NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
                 let uid = resp
                     .result
@@ -54,12 +53,28 @@ pub(super) fn spawn_fetch_page(
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let mut note = DailyNote::from_pull_response(dummy_date, uid, &resp.result);
-                // Ensure title is set even if page doesn't exist yet
-                if note.title.is_empty() {
-                    note.title = title_owned;
+
+                if uid.is_empty() {
+                    // Page doesn't exist — create it
+                    let new_uid = super::blocks::generate_uid();
+                    let create_action = WriteAction::CreatePage {
+                        page: PageCreate {
+                            title: title_owned.clone(),
+                            uid: Some(new_uid.clone()),
+                        },
+                    };
+                    let _ = client_clone.write(create_action).await;
+                    let note = DailyNote {
+                        date: dummy_date,
+                        uid: new_uid,
+                        title: title_owned,
+                        blocks: vec![],
+                    };
+                    let _ = tx_clone.send(AppMessage::PageLoaded(note));
+                } else {
+                    let note = DailyNote::from_pull_response(dummy_date, uid, &resp.result);
+                    let _ = tx_clone.send(AppMessage::PageLoaded(note));
                 }
-                let _ = tx_clone.send(AppMessage::PageLoaded(note));
             }
             Err(e) => {
                 let _ = tx_clone.send(AppMessage::ApiError(ErrorInfo::from_roam_error(&e)));

@@ -502,7 +502,7 @@ fn render_quick_switcher_popup(frame: &mut Frame, qs: &QuickSwitcherState, area:
         0
     };
 
-    for (i, (title, _)) in qs
+    for (i, (title, uid)) in qs
         .filtered
         .iter()
         .skip(scroll_offset)
@@ -513,14 +513,22 @@ fn render_quick_switcher_popup(frame: &mut Frame, qs: &QuickSwitcherState, area:
             break;
         }
         let is_selected = (i + scroll_offset) == qs.selected;
+        let is_create = uid.is_empty();
+        let display_text = if is_create {
+            format!("+ Create: {}", title)
+        } else {
+            title.clone()
+        };
         let style = if is_selected {
             Style::default().fg(Color::White).bg(Color::DarkGray)
+        } else if is_create {
+            Style::default().fg(Color::Green)
         } else {
             Style::default().fg(Color::Gray)
         };
 
         let max_text_width = inner.width as usize;
-        let display: String = title.chars().take(max_text_width).collect();
+        let display: String = display_text.chars().take(max_text_width).collect();
         let padding = max_text_width.saturating_sub(display.chars().count());
         let padded = format!("{}{}", display, " ".repeat(padding));
 

@@ -78,6 +78,10 @@ pub fn filter_page_titles(
     prefix_matches
 }
 
+pub fn has_exact_match(titles: &[(String, String)], query: &str) -> bool {
+    titles.iter().any(|(t, _)| t.eq_ignore_ascii_case(query))
+}
+
 fn collect_matching_blocks(
     blocks: &[Block],
     query: &str,
