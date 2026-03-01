@@ -343,10 +343,7 @@ mod tests {
         handle_search_key,
     };
     use super::nav::navigate_to_page;
-    use super::search::{
-        detect_block_ref_trigger, filter_blocks, filter_page_titles, AUTOCOMPLETE_LIMIT,
-        QUICK_SWITCHER_LIMIT, SEARCH_LIMIT,
-    };
+    use super::search::{detect_block_ref_trigger, filter_blocks, filter_page_titles};
     use super::tasks::extract_uids_from_text;
     use super::test_helpers::*;
     use super::undo::{apply_redo, apply_undo};
