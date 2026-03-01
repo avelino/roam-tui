@@ -211,6 +211,13 @@ pub fn parse_linked_refs(
 }
 
 #[derive(Debug, Serialize)]
+pub struct PageCreate {
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(tag = "action")]
 #[allow(clippy::enum_variant_names)]
 pub enum WriteAction {
@@ -228,6 +235,8 @@ pub enum WriteAction {
         block: BlockRef,
         location: BlockLocation,
     },
+    #[serde(rename = "create-page")]
+    CreatePage { page: PageCreate },
 }
 
 #[derive(Debug, Serialize)]
@@ -638,6 +647,34 @@ mod tests {
 
         let groups = parse_linked_refs(&result, "X");
         assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn write_action_create_page_serializes() {
+        let action = WriteAction::CreatePage {
+            page: PageCreate {
+                title: "My New Page".into(),
+                uid: Some("page-uid-123".into()),
+            },
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json["action"], "create-page");
+        assert_eq!(json["page"]["title"], "My New Page");
+        assert_eq!(json["page"]["uid"], "page-uid-123");
+    }
+
+    #[test]
+    fn write_action_create_page_without_uid() {
+        let action = WriteAction::CreatePage {
+            page: PageCreate {
+                title: "Auto UID Page".into(),
+                uid: None,
+            },
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json["action"], "create-page");
+        assert_eq!(json["page"]["title"], "Auto UID Page");
+        assert!(json["page"].get("uid").is_none());
     }
 
     #[test]

@@ -286,11 +286,12 @@ What's working now and what's next.
 - [x] Navigation history (back/forward)
 - [x] Cursor navigation (left/right within blocks)
 - [x] User-friendly error popups (rate limits, auth, network)
+- [x] Quick switcher (fuzzy page navigation)
+- [x] Linked references / backlinks panel
+- [x] Page creation from `[[links]]` and Quick Switcher
 
 ### Planned
 
-- [ ] Quick switcher (fuzzy page navigation)
-- [ ] Linked references / backlinks panel
 - [ ] Sidebar with page references
 - [ ] Unlinked references
 - [ ] Light theme

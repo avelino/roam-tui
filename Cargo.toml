@@ -1,6 +1,6 @@
 [package]
 name = "roam-sdk"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Roam Research SDK and terminal UI client"
 license = "MIT"

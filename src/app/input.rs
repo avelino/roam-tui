@@ -10,7 +10,8 @@ use super::blocks::{
 };
 use super::nav::navigate_to_page;
 use super::search::{
-    filter_blocks, filter_page_titles, AUTOCOMPLETE_LIMIT, QUICK_SWITCHER_LIMIT, SEARCH_LIMIT,
+    filter_blocks, filter_page_titles, has_exact_match, AUTOCOMPLETE_LIMIT, QUICK_SWITCHER_LIMIT,
+    SEARCH_LIMIT,
 };
 use super::state::{AppState, AutocompleteState, CreateInfo, InputMode, LoadRequest, UndoEntry};
 
@@ -99,6 +100,13 @@ pub fn handle_search_key(state: &mut AppState, key: &KeyEvent) {
 
 // --- Quick Switcher key handling ---
 
+/// Append a "Create" sentinel entry if the query has no exact match in the cache.
+fn append_create_entry(qs: &mut super::state::QuickSwitcherState, cache: &[(String, String)]) {
+    if !qs.query.is_empty() && !has_exact_match(cache, &qs.query) {
+        qs.filtered.push((qs.query.clone(), String::new()));
+    }
+}
+
 pub(super) fn handle_quick_switcher_key(
     state: &mut AppState,
     key: &KeyEvent,
@@ -142,6 +150,7 @@ pub(super) fn handle_quick_switcher_key(
                         &qs.query,
                         QUICK_SWITCHER_LIMIT,
                     );
+                    append_create_entry(qs, &state.page_title_cache);
                     qs.selected = qs.selected.min(qs.filtered.len().saturating_sub(1));
                 }
             }
@@ -156,6 +165,7 @@ pub(super) fn handle_quick_switcher_key(
                         &qs.query,
                         QUICK_SWITCHER_LIMIT,
                     );
+                    append_create_entry(qs, &state.page_title_cache);
                     qs.selected = qs.selected.min(qs.filtered.len().saturating_sub(1));
                 }
             }
