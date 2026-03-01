@@ -27,7 +27,7 @@ pub fn make_daily_note(year: i32, month: u32, day: u32, blocks: Vec<Block>) -> D
 }
 
 pub fn test_state() -> AppState {
-    let mut state = AppState::new("test-graph", vec![]);
+    let mut state = AppState::new("test-graph", vec![], vec![]);
     state.loading = false;
     state.status_message = None;
 
@@ -50,7 +50,7 @@ pub fn test_state_with_blocks() -> AppState {
 }
 
 pub fn test_state_with_children() -> AppState {
-    let mut state = AppState::new("test-graph", vec![]);
+    let mut state = AppState::new("test-graph", vec![], vec![]);
     state.loading = false;
     state.status_message = None;
     let parent = Block {
@@ -70,7 +70,7 @@ pub fn test_state_with_children() -> AppState {
 }
 
 pub fn test_state_two_days() -> AppState {
-    let mut state = AppState::new("test-graph", vec![]);
+    let mut state = AppState::new("test-graph", vec![], vec![]);
     state.loading = false;
     state.status_message = None;
     let day1 = make_daily_note(

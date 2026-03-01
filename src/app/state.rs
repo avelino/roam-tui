@@ -115,6 +115,7 @@ pub struct AppState {
     pub loading_more: bool,
     pub status_message: Option<String>,
     pub hints: Vec<(String, &'static str)>,
+    pub help_hints: Vec<(String, &'static str)>,
     pub should_quit: bool,
     pub refresh_counter: u32,
     pub input_mode: InputMode,
@@ -135,10 +136,15 @@ pub struct AppState {
     pub slash_menu: Option<super::slash::SlashMenuState>,
     pub quick_switcher: Option<QuickSwitcherState>,
     pub(super) page_title_cache: Vec<(String, String)>,
+    pub needs_linked_refs_refresh: bool,
 }
 
 impl AppState {
-    pub fn new(graph_name: &str, hints: Vec<(String, &'static str)>) -> Self {
+    pub fn new(
+        graph_name: &str,
+        hints: Vec<(String, &'static str)>,
+        help_hints: Vec<(String, &'static str)>,
+    ) -> Self {
         let now = Local::now();
         Self {
             graph_name: graph_name.to_string(),
@@ -151,6 +157,7 @@ impl AppState {
             loading_more: false,
             status_message: Some("Loading today's notes...".into()),
             hints,
+            help_hints,
             should_quit: false,
             refresh_counter: 0,
             input_mode: InputMode::Normal,
@@ -171,7 +178,20 @@ impl AppState {
             slash_menu: None,
             quick_switcher: None,
             page_title_cache: Vec::new(),
+            needs_linked_refs_refresh: false,
         }
+    }
+
+    pub fn can_nav_back(&self) -> bool {
+        if self.nav_index == self.nav_history.len() {
+            !self.nav_history.is_empty()
+        } else {
+            self.nav_index > 0
+        }
+    }
+
+    pub fn can_nav_forward(&self) -> bool {
+        self.nav_index + 1 < self.nav_history.len()
     }
 
     pub fn flat_block_count(&self) -> usize {
