@@ -19,7 +19,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.name == 'Release')
     runs-on: ubuntu-latest
-    environment: npm
+    environment: ci
     steps:
       - uses: actions/checkout@v4
 
