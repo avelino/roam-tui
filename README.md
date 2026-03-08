@@ -2,6 +2,7 @@
 
 [![Docs](https://img.shields.io/badge/docs-roam--tui.avelino.run-blue)](https://roam-tui.avelino.run)
 [![Crates.io](https://img.shields.io/crates/v/roam-sdk)](https://crates.io/crates/roam-sdk)
+[![npm](https://img.shields.io/npm/v/roam-tui)](https://www.npmjs.com/package/roam-tui)
 
 A fast, keyboard-driven terminal client and Rust SDK for [Roam Research](https://roamresearch.com). Navigate, edit, and search your knowledge graph without leaving the terminal — or use the SDK to build your own tools.
 
@@ -31,6 +32,51 @@ A fast, keyboard-driven terminal client and Rust SDK for [Roam Research](https:/
 └─────────────────────────────────────────────────────────┘
 ```
 
+## MCP Server
+
+`roam-tui` includes a built-in [MCP server](https://modelcontextprotocol.io/) that exposes your Roam graph to AI assistants (Claude, Cursor, etc.). Connects directly to the [Roam Research cloud API](https://roamresearch.com/#/app/developer-documentation) — no local Roam desktop app needed.
+
+### Setup
+
+Add to your MCP client config (e.g. `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "roam": {
+      "command": "npx",
+      "args": ["-y", "roam-tui@latest", "--mcp"],
+      "env": {
+        "ROAM_GRAPH_NAME": "your-graph-name",
+        "ROAM_GRAPH_API__TOKEN": "roam-graph-token-XXXXX"
+      }
+    }
+  }
+}
+```
+
+Or if you have the binary installed:
+
+```bash
+roam --mcp
+```
+
+### Available tools
+
+| Tool | Description |
+|------|-------------|
+| `search` | Search pages by title |
+| `get_page` | Get a page with all blocks |
+| `get_block` | Get a block by UID |
+| `get_backlinks` | Find blocks that reference a page |
+| `roam_query` | Run a raw Datalog query |
+| `create_page` | Create a new page |
+| `create_block` | Create a block under a parent |
+| `update_block` | Update block content |
+| `delete_block` | Delete a block |
+| `delete_page` | Delete a page |
+| `move_block` | Move a block to another parent |
+
 ## Why
 
 Roam Research is powerful but lives in the browser. If you spend most of your day in the terminal, context switching costs add up. `roam-tui` gives you direct access to your graph — fast, focused, and keyboard-first.
@@ -38,6 +84,12 @@ Roam Research is powerful but lives in the browser. If you spend most of your da
 **Not a replacement** for the web UI. Use `roam-tui` for quick capture, daily note workflows, and navigating your graph. Use the web for complex queries, graph visualization, and plugin-heavy workflows.
 
 ## Installation
+
+### Via npm (recommended for MCP)
+
+```bash
+npx roam-tui@latest --mcp
+```
 
 ### From source
 
@@ -49,8 +101,8 @@ cargo install --path .
 
 ### Requirements
 
-- Rust 1.70+
 - A Roam Research graph with an API token ([how to get one](https://roamresearch.com/#/app/developer-documentation))
+- Rust 1.70+ (only for building from source)
 
 ## Quick start
 
@@ -240,8 +292,9 @@ ROAM_GRAPH_API__TOKEN=roam-graph-token-XXXXX
 
 ```
 src/
-  main.rs             Entry point, terminal setup
-  app.rs              State machine, event loop, actions
+  main.rs             Entry point, CLI args (--mcp or TUI)
+  mcp.rs              MCP server (11 tools over stdio)
+  app/                TUI state machine, event loop, actions
   config.rs           TOML + env var configuration
   edit_buffer.rs      Text editing with cursor management
   markdown.rs         Roam-flavored markdown parser
@@ -289,6 +342,7 @@ What's working now and what's next.
 - [x] Quick switcher (fuzzy page navigation)
 - [x] Linked references / backlinks panel
 - [x] Page creation from `[[links]]` and Quick Switcher
+- [x] MCP server (`--mcp` flag, 11 tools, npm distribution)
 
 ### Planned
 
@@ -302,7 +356,7 @@ What's working now and what's next.
 ```bash
 git clone https://github.com/avelino/roam-tui
 cd roam-tui
-cargo test     # 339 tests
+cargo test     # 504 tests
 cargo run      # requires config with valid API token
 ```
 

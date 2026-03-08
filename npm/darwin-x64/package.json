@@ -1,0 +1,13 @@
+{
+  "name": "roam-tui-darwin-x64",
+  "version": "0.0.0",
+  "description": "Roam Research MCP server (macOS Intel binary)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/avelino/roam-tui"
+  },
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "files": ["bin/"]
+}

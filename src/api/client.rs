@@ -19,7 +19,6 @@ impl RoamClient {
         }
     }
 
-    #[cfg(test)]
     pub fn new_with_base_url(base_url: &str, token: &str) -> Self {
         Self {
             client: Client::new(),

@@ -1,0 +1,144 @@
+name: Publish to npm
+
+on:
+  workflow_run:
+    workflows: ["Release", "Publish Crate"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g., v0.2.0)"
+        required: true
+
+jobs:
+  publish-npm:
+    # Only run when ALL triggering workflows succeeded, or on manual dispatch
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.name == 'Release')
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            # Get the tag from the workflow run that triggered us
+            TAG=$(gh api repos/${{ github.repository }}/releases/latest --jq '.tag_name')
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check Release workflow succeeded
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+
+          # Verify the release exists and has all expected binaries
+          ASSET_COUNT=$(gh release view "$TAG" --json assets --jq '.assets | length')
+          if [[ "$ASSET_COUNT" -lt 5 ]]; then
+            echo "::error::Release $TAG has only $ASSET_COUNT assets, expected at least 5"
+            exit 1
+          fi
+
+          # Verify Publish Crate workflow also succeeded for this tag
+          CRATE_STATUS=$(gh run list --workflow="Publish Crate" --branch="$TAG" --limit=1 --json conclusion --jq '.[0].conclusion // "not_found"')
+          if [[ "$CRATE_STATUS" != "success" ]]; then
+            echo "::warning::Publish Crate status: $CRATE_STATUS — proceeding anyway (npm is independent)"
+          fi
+
+      - name: Skip beta releases
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          if [[ "$TAG" == *beta* ]]; then
+            echo "::notice::Skipping beta release $TAG"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Get version from tag
+        id: version
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download release binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          mkdir -p binaries
+          gh release download "$TAG" --dir binaries/
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          declare -A TARGETS=(
+            ["x86_64-unknown-linux-gnu"]="linux-x64"
+            ["aarch64-unknown-linux-gnu"]="linux-arm64"
+            ["x86_64-apple-darwin"]="darwin-x64"
+            ["aarch64-apple-darwin"]="darwin-arm64"
+            ["x86_64-pc-windows-msvc"]="win32-x64"
+          )
+
+          for target in "${!TARGETS[@]}"; do
+            platform="${TARGETS[$target]}"
+            pkg_dir="npm/$platform"
+
+            # Set version
+            cd "$pkg_dir"
+            npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+            # Copy binary
+            mkdir -p bin
+            if [[ "$platform" == "win32-x64" ]]; then
+              cp "../../binaries/roam-${target}.exe" bin/roam.exe
+            else
+              cp "../../binaries/roam-${target}" bin/roam
+              chmod +x bin/roam
+            fi
+
+            # Publish (skip if already published)
+            npm publish --access public || echo "::warning::${platform} already published, skipping"
+            cd ../..
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cd npm/roam-tui
+
+          # Update version
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+          # Update optionalDependencies versions to match
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            for (const dep of Object.keys(pkg.optionalDependencies || {})) {
+              pkg.optionalDependencies[dep] = '$VERSION';
+            }
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          # Publish (skip if already published)
+          npm publish --access public || echo "::warning::Main package already published, skipping"

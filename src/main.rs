@@ -7,11 +7,21 @@ mod edit_buffer;
 mod highlight;
 mod keys;
 mod markdown;
+mod mcp;
 mod ui;
 
 use std::path::PathBuf;
 
+use clap::Parser;
 use config::AppConfig;
+
+#[derive(Parser)]
+#[command(name = "roam", about = "Roam Research TUI and MCP server")]
+struct Cli {
+    /// Run as MCP server (stdio transport)
+    #[arg(long)]
+    mcp: bool,
+}
 
 fn config_path() -> PathBuf {
     AppConfig::config_dir()
@@ -21,6 +31,7 @@ fn config_path() -> PathBuf {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
     let path = config_path();
 
     if !path.exists() {
@@ -40,6 +51,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
     };
+
+    if cli.mcp {
+        mcp::run(&config).await?;
+        return Ok(());
+    }
 
     let mut terminal = ratatui::init();
 
