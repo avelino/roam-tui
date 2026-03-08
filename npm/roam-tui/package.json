@@ -1,0 +1,22 @@
+{
+  "name": "roam-tui",
+  "version": "0.0.0",
+  "description": "Roam Research TUI client and MCP server — read and write to your Roam graph via cloud API",
+  "keywords": ["roam", "roam-research", "tui", "mcp", "model-context-protocol", "ai"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/avelino/roam-tui"
+  },
+  "bin": {
+    "roam-tui": "bin/run.js"
+  },
+  "files": ["bin/"],
+  "optionalDependencies": {
+    "roam-tui-darwin-arm64": "0.0.0",
+    "roam-tui-darwin-x64": "0.0.0",
+    "roam-tui-linux-x64": "0.0.0",
+    "roam-tui-linux-arm64": "0.0.0",
+    "roam-tui-win32-x64": "0.0.0"
+  }
+}

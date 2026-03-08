@@ -1,0 +1,13 @@
+{
+  "name": "roam-tui-linux-x64",
+  "version": "0.0.0",
+  "description": "Roam Research MCP server (Linux x64 binary)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/avelino/roam-tui"
+  },
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["bin/"]
+}
