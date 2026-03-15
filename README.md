@@ -61,21 +61,48 @@ Or if you have the binary installed:
 roam --mcp
 ```
 
-### Available tools
+### Available tools (18)
 
 | Tool | Description |
 |------|-------------|
 | `search` | Search pages by title |
+| `search_blocks` | Full-text search inside block content |
 | `get_page` | Get a page with all blocks |
 | `get_block` | Get a block by UID |
+| `get_daily_note` | Get a daily note by date |
 | `get_backlinks` | Find blocks that reference a page |
+| `get_block_refs` | Get outbound references from a block |
+| `get_graph_stats` | Graph statistics (page/block counts) |
 | `roam_query` | Run a raw Datalog query |
 | `create_page` | Create a new page |
 | `create_block` | Create a block under a parent |
+| `create_block_with_children` | Create a block with nested children |
 | `update_block` | Update block content |
 | `delete_block` | Delete a block |
 | `delete_page` | Delete a page |
 | `move_block` | Move a block to another parent |
+| `batch_write` | Execute multiple write operations |
+| `export_page_as_markdown` | Export a page as formatted markdown |
+
+## CLI
+
+All SDK operations are available as CLI subcommands. No subcommand launches the TUI.
+
+```bash
+roam journal add "Meeting with [[John]]"     # add to today's daily note
+roam journal                                  # view today's note (JSON)
+roam search "project" --blocks --limit 10     # search block content
+roam get page "Books"                         # get a page with all blocks
+roam get backlinks "Project Alpha"            # find references to a page
+roam get stats                                # graph statistics
+roam export --page "Books" --format json      # export page as JSON
+roam query '[:find ?t :where [?e :node/title ?t]]'  # raw Datalog query
+roam create page "New Project"                # create a page
+roam create block --parent "uid" "Content"    # create a block
+roam batch operations.json                    # batch write operations
+```
+
+Full reference: [CLI docs](https://roam-tui.avelino.run/cli/)
 
 ## Why
 

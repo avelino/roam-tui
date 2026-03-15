@@ -3,6 +3,10 @@
 - [Introduction](README.md)
 - [Export](export.md)
 
+## CLI
+
+- [Commands Reference](cli/README.md)
+
 ## TUI
 
 - [Overview](tui/README.md)
