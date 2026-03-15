@@ -5,14 +5,14 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
 
 use crate::api::types::{Block, DailyNote};
-use crate::app::LinkedRefsState;
+use crate::app::{LinkedRefsState, Selection};
 use crate::edit_buffer::EditBuffer;
 use crate::highlight::CodeHighlighter;
 use crate::markdown;
 
 pub struct MainArea<'a> {
     pub days: &'a [DailyNote],
-    pub selected_block: usize,
+    pub selection: &'a Selection,
     pub cursor_col: usize,
     pub loading: bool,
     pub loading_more: bool,
@@ -410,7 +410,7 @@ impl<'a> Widget for MainArea<'a> {
                     collapsed_children,
                 } => {
                     let indent = "  ".repeat(depth + 1);
-                    let is_selected = *block_index == self.selected_block;
+                    let is_selected = self.selection.contains(*block_index);
 
                     if !found_selected && is_selected {
                         selected_row = rows.len();
@@ -592,7 +592,7 @@ impl<'a> Widget for MainArea<'a> {
                     block_index,
                 } => {
                     let indent = "  ".repeat(depth + 1);
-                    let is_selected = *block_index == self.selected_block;
+                    let is_selected = self.selection.contains(*block_index);
 
                     if !found_selected && is_selected {
                         selected_row = rows.len();
@@ -645,7 +645,7 @@ impl<'a> Widget for MainArea<'a> {
                     ..
                 } => {
                     let indent = "  ".repeat(depth + 1);
-                    let is_selected = *block_index == self.selected_block;
+                    let is_selected = self.selection.contains(*block_index);
 
                     if !found_selected
                         && is_selected
@@ -702,7 +702,7 @@ impl<'a> Widget for MainArea<'a> {
                     collapsed,
                     block_index,
                 } => {
-                    let is_selected = *block_index == self.selected_block;
+                    let is_selected = self.selection.contains(*block_index);
                     if !found_selected && is_selected {
                         selected_row = rows.len();
                         found_selected = true;
@@ -729,7 +729,7 @@ impl<'a> Widget for MainArea<'a> {
                     page_title,
                     block_index,
                 } => {
-                    let is_selected = *block_index == self.selected_block;
+                    let is_selected = self.selection.contains(*block_index);
                     if !found_selected && is_selected {
                         selected_row = rows.len();
                         found_selected = true;
@@ -745,7 +745,7 @@ impl<'a> Widget for MainArea<'a> {
                 VisibleLine::LinkedRefsBlock {
                     text, block_index, ..
                 } => {
-                    let is_selected = *block_index == self.selected_block;
+                    let is_selected = self.selection.contains(*block_index);
                     if !found_selected && is_selected {
                         selected_row = rows.len();
                         found_selected = true;
@@ -929,7 +929,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: true,
             loading_more: false,
@@ -950,7 +950,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -982,7 +982,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1011,7 +1011,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 1,
+            selection: &Selection::Single(1),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1041,7 +1041,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1139,7 +1139,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1181,7 +1181,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1220,7 +1220,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1313,7 +1313,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1351,7 +1351,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1415,7 +1415,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1527,7 +1527,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1571,7 +1571,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1648,7 +1648,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1686,7 +1686,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1719,7 +1719,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day1, day2],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1756,7 +1756,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1799,7 +1799,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -1831,7 +1831,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,
@@ -2024,7 +2024,7 @@ mod tests {
 
         let widget = MainArea {
             days: &[day],
-            selected_block: 0,
+            selection: &Selection::Single(0),
             cursor_col: 0,
             loading: false,
             loading_more: false,

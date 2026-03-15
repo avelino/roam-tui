@@ -8,6 +8,18 @@ use super::state::{AppState, UndoEntry};
 
 pub fn apply_undo(state: &mut AppState) -> Option<WriteAction> {
     let entry = state.undo_stack.pop()?;
+    if let UndoEntry::Batch(entries) = entry {
+        let mut redo_entries = Vec::new();
+        let mut actions = Vec::new();
+        for e in entries.into_iter().rev() {
+            let (redo, action) = apply_undo_entry(state, e);
+            redo_entries.push(redo);
+            actions.push(action);
+        }
+        redo_entries.reverse();
+        state.redo_stack.push(UndoEntry::Batch(redo_entries));
+        return Some(WriteAction::BatchActions { actions });
+    }
     let (redo_entry, write_action) = apply_undo_entry(state, entry);
     state.redo_stack.push(redo_entry);
     Some(write_action)
@@ -15,6 +27,17 @@ pub fn apply_undo(state: &mut AppState) -> Option<WriteAction> {
 
 pub fn apply_redo(state: &mut AppState) -> Option<WriteAction> {
     let entry = state.redo_stack.pop()?;
+    if let UndoEntry::Batch(entries) = entry {
+        let mut undo_entries = Vec::new();
+        let mut actions = Vec::new();
+        for e in entries {
+            let (undo, action) = apply_undo_entry(state, e);
+            undo_entries.push(undo);
+            actions.push(action);
+        }
+        state.undo_stack.push(UndoEntry::Batch(undo_entries));
+        return Some(WriteAction::BatchActions { actions });
+    }
     let (undo_entry, write_action) = apply_undo_entry(state, entry);
     state.undo_stack.push(undo_entry);
     Some(write_action)
@@ -137,6 +160,22 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
                 },
             };
             (redo, write)
+        }
+        UndoEntry::Batch(entries) => {
+            // Batch entries should be handled by apply_undo/apply_redo directly,
+            // but if one appears here, process recursively
+            let mut redo_entries = Vec::new();
+            let mut actions = Vec::new();
+            for e in entries.into_iter().rev() {
+                let (redo, action) = apply_undo_entry(state, e);
+                redo_entries.push(redo);
+                actions.push(action);
+            }
+            redo_entries.reverse();
+            (
+                UndoEntry::Batch(redo_entries),
+                WriteAction::BatchActions { actions },
+            )
         }
     }
 }

@@ -27,6 +27,7 @@ pub enum UndoEntry {
         old_order: i64,
         selected_block: usize,
     },
+    Batch(Vec<UndoEntry>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -110,6 +111,7 @@ pub struct AppState {
     pub days: Vec<DailyNote>,
     pub current_date: NaiveDate,
     pub selected_block: usize,
+    pub selection: Selection,
     pub cursor_col: usize,
     pub loading: bool,
     pub loading_more: bool,
@@ -137,6 +139,7 @@ pub struct AppState {
     pub quick_switcher: Option<QuickSwitcherState>,
     pub(super) page_title_cache: Vec<(String, String)>,
     pub needs_linked_refs_refresh: bool,
+    pub(super) placeholder_uids: HashSet<String>,
 }
 
 impl AppState {
@@ -152,6 +155,7 @@ impl AppState {
             days: Vec::new(),
             current_date: now.date_naive(),
             selected_block: 0,
+            selection: Selection::Single(0),
             cursor_col: 0,
             loading: true,
             loading_more: false,
@@ -179,6 +183,7 @@ impl AppState {
             quick_switcher: None,
             page_title_cache: Vec::new(),
             needs_linked_refs_refresh: false,
+            placeholder_uids: HashSet::new(),
         }
     }
 
@@ -247,6 +252,61 @@ impl AppState {
             }
         }
         None
+    }
+}
+
+// --- Multi-block selection ---
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Selection {
+    Single(usize),
+    Range { anchor: usize, head: usize },
+}
+
+impl Selection {
+    #[allow(dead_code)]
+    pub fn cursor(&self) -> usize {
+        match self {
+            Self::Single(i) => *i,
+            Self::Range { head, .. } => *head,
+        }
+    }
+
+    pub fn contains(&self, index: usize) -> bool {
+        match self {
+            Self::Single(i) => *i == index,
+            Self::Range { anchor, head } => {
+                let (lo, hi) = if anchor <= head {
+                    (*anchor, *head)
+                } else {
+                    (*head, *anchor)
+                };
+                index >= lo && index <= hi
+            }
+        }
+    }
+
+    pub fn indices(&self) -> (usize, usize) {
+        match self {
+            Self::Single(i) => (*i, *i),
+            Self::Range { anchor, head } => {
+                if anchor <= head {
+                    (*anchor, *head)
+                } else {
+                    (*head, *anchor)
+                }
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn count(&self) -> usize {
+        let (lo, hi) = self.indices();
+        hi - lo + 1
+    }
+
+    pub fn is_multi(&self) -> bool {
+        matches!(self, Self::Range { anchor, head } if anchor != head)
     }
 }
 
@@ -329,4 +389,69 @@ pub(crate) fn count_blocks_recursive(blocks: &[Block]) -> usize {
             }
         })
         .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selection_single_contains_only_itself() {
+        let sel = Selection::Single(3);
+        assert!(sel.contains(3));
+        assert!(!sel.contains(2));
+        assert!(!sel.contains(4));
+    }
+
+    #[test]
+    fn selection_range_contains_all_in_range() {
+        let sel = Selection::Range { anchor: 2, head: 5 };
+        assert!(!sel.contains(1));
+        assert!(sel.contains(2));
+        assert!(sel.contains(3));
+        assert!(sel.contains(4));
+        assert!(sel.contains(5));
+        assert!(!sel.contains(6));
+    }
+
+    #[test]
+    fn selection_range_reversed_contains_all() {
+        let sel = Selection::Range { anchor: 5, head: 2 };
+        assert!(sel.contains(2));
+        assert!(sel.contains(3));
+        assert!(sel.contains(5));
+        assert!(!sel.contains(1));
+        assert!(!sel.contains(6));
+    }
+
+    #[test]
+    fn selection_indices_sorted() {
+        let sel = Selection::Range { anchor: 7, head: 3 };
+        assert_eq!(sel.indices(), (3, 7));
+    }
+
+    #[test]
+    fn selection_single_indices() {
+        let sel = Selection::Single(4);
+        assert_eq!(sel.indices(), (4, 4));
+    }
+
+    #[test]
+    fn selection_is_multi() {
+        assert!(!Selection::Single(0).is_multi());
+        assert!(!Selection::Range { anchor: 3, head: 3 }.is_multi());
+        assert!(Selection::Range { anchor: 1, head: 3 }.is_multi());
+    }
+
+    #[test]
+    fn selection_count() {
+        assert_eq!(Selection::Single(0).count(), 1);
+        assert_eq!(Selection::Range { anchor: 2, head: 5 }.count(), 4);
+    }
+
+    #[test]
+    fn selection_cursor() {
+        assert_eq!(Selection::Single(3).cursor(), 3);
+        assert_eq!(Selection::Range { anchor: 1, head: 5 }.cursor(), 5);
+    }
 }
