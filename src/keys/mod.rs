@@ -86,6 +86,9 @@ impl KeybindingMap {
             Action::NextDay,
             Action::PrevDay,
             Action::ToggleSidebar,
+            Action::Export,
+            Action::SelectUp,
+            Action::SelectDown,
             Action::Help,
             Action::Quit,
         ];
