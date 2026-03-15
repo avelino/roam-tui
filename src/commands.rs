@@ -28,7 +28,8 @@ pub async fn get_block(client: &RoamClient, uid: &str) -> Result<String> {
 pub async fn get_daily(client: &RoamClient, date: Option<&str>) -> Result<String> {
     let (month, day, year) = match date {
         Some(date_str) => {
-            let d = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")?;
+            let d = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+                .map_err(|e| format!("Invalid date format (expected YYYY-MM-DD): {}", e))?;
             (d.month(), d.day(), d.year())
         }
         None => {
@@ -167,7 +168,9 @@ pub async fn search(
 
 pub async fn query(client: &RoamClient, query_str: &str, args: Option<&str>) -> Result<String> {
     let args: Vec<serde_json::Value> = match args {
-        Some(args_str) => serde_json::from_str(args_str)?,
+        Some(args_str) => {
+            serde_json::from_str(args_str).map_err(|e| format!("Invalid args JSON: {}", e))?
+        }
         None => vec![],
     };
     let resp = client.query(query_str.to_string(), args).await?;
@@ -214,7 +217,8 @@ pub async fn journal_add(
     }];
 
     if let Some(children_json) = children {
-        let child_strings: Vec<String> = serde_json::from_str(children_json)?;
+        let child_strings: Vec<String> = serde_json::from_str(children_json)
+            .map_err(|e| format!("Invalid children JSON: {}", e))?;
         for (i, child_text) in child_strings.iter().enumerate() {
             actions.push(WriteAction::CreateBlock {
                 location: BlockLocation {
@@ -283,7 +287,8 @@ pub async fn create_block(
     }];
 
     if let Some(children_json) = children {
-        let child_strings: Vec<String> = serde_json::from_str(children_json)?;
+        let child_strings: Vec<String> = serde_json::from_str(children_json)
+            .map_err(|e| format!("Invalid children JSON: {}", e))?;
         for (i, child_text) in child_strings.iter().enumerate() {
             actions.push(WriteAction::CreateBlock {
                 location: BlockLocation {
@@ -374,7 +379,8 @@ pub async fn move_block(
 }
 
 pub async fn batch(client: &RoamClient, input: &str) -> Result<String> {
-    let actions: Vec<WriteAction> = serde_json::from_str(input)?;
+    let actions: Vec<WriteAction> =
+        serde_json::from_str(input).map_err(|e| format!("Invalid actions JSON: {}", e))?;
     let count = actions.len();
     client.write_batch(actions).await?;
     Ok(serde_json::to_string_pretty(&serde_json::json!({

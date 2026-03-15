@@ -1,6 +1,9 @@
 pub mod header;
-pub mod main_area;
+mod row_builder;
 pub mod status_bar;
+mod text_wrap;
+pub mod view;
+mod visible_lines;
 
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
@@ -16,8 +19,8 @@ use crate::app::{
 use crate::error::ErrorPopup;
 
 use header::Header;
-use main_area::{EditInfo, MainArea};
 use status_bar::StatusBar;
+use view::{EditInfo, MainArea};
 
 pub fn render(frame: &mut Frame, state: &AppState) {
     let chunks = Layout::vertical([
