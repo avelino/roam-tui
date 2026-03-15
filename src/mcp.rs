@@ -7,7 +7,8 @@ use rmcp::{
 use roam_sdk::api::client::RoamClient;
 use roam_sdk::api::queries;
 use roam_sdk::api::types::{
-    BlockLocation, BlockRef, BlockUpdate, NewBlock, OrderValue, PageCreate, WriteAction,
+    generate_block_uid, parse_order, BlockLocation, BlockRef, BlockUpdate, NewBlock, OrderValue,
+    PageCreate, WriteAction,
 };
 use serde::Deserialize;
 
@@ -25,17 +26,6 @@ impl RoamMcp {
             client,
             tool_router: Self::tool_router(),
         }
-    }
-}
-
-fn parse_order(order: Option<String>) -> OrderValue {
-    match order.as_deref() {
-        None | Some("last") => OrderValue::Position("last".into()),
-        Some("first") => OrderValue::Position("first".into()),
-        Some(n) => n
-            .parse::<i64>()
-            .map(OrderValue::Index)
-            .unwrap_or(OrderValue::Position("last".into())),
     }
 }
 
@@ -322,7 +312,7 @@ impl RoamMcp {
         let action = WriteAction::CreateBlock {
             location: BlockLocation {
                 parent_uid: params.parent_uid,
-                order: parse_order(params.order),
+                order: parse_order(params.order.as_deref()),
             },
             block: NewBlock {
                 string: params.content,
@@ -404,7 +394,7 @@ impl RoamMcp {
             },
             location: BlockLocation {
                 parent_uid: params.parent_uid,
-                order: parse_order(params.order),
+                order: parse_order(params.order.as_deref()),
             },
         };
 
@@ -623,12 +613,12 @@ impl RoamMcp {
     ) -> Result<String, String> {
         let block_uid = params
             .uid
-            .unwrap_or_else(|| format!("mcp-{}", uuid_v4_short()));
+            .unwrap_or_else(|| format!("mcp-{}", generate_block_uid()));
 
         let mut actions = vec![WriteAction::CreateBlock {
             location: BlockLocation {
                 parent_uid: params.parent_uid,
-                order: parse_order(params.order),
+                order: parse_order(params.order.as_deref()),
             },
             block: NewBlock {
                 string: params.content,
@@ -688,33 +678,6 @@ fn render_block_as_markdown(block: &serde_json::Value, depth: usize, output: &mu
     }
 }
 
-fn uuid_v4_short() -> String {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-
-    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
-    let count = COUNTER.fetch_add(1, Ordering::Relaxed) as u64;
-    let seed = nanos
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(count ^ (std::process::id() as u64));
-
-    let mut uid = String::with_capacity(9);
-    let mut val = seed;
-    for _ in 0..9 {
-        uid.push(CHARS[(val % 62) as usize] as char);
-        val /= 62;
-        val = val.wrapping_mul(2862933555777941757).wrapping_add(nanos);
-    }
-    uid
-}
-
 #[tool_handler]
 impl ServerHandler for RoamMcp {
     fn get_info(&self) -> ServerInfo {
@@ -757,7 +720,7 @@ mod tests {
 
     #[test]
     fn parse_order_last() {
-        match parse_order(Some("last".into())) {
+        match parse_order(Some("last")) {
             OrderValue::Position(s) => assert_eq!(s, "last"),
             _ => panic!("Expected Position"),
         }
@@ -765,7 +728,7 @@ mod tests {
 
     #[test]
     fn parse_order_first() {
-        match parse_order(Some("first".into())) {
+        match parse_order(Some("first")) {
             OrderValue::Position(s) => assert_eq!(s, "first"),
             _ => panic!("Expected Position"),
         }
@@ -773,7 +736,7 @@ mod tests {
 
     #[test]
     fn parse_order_numeric() {
-        match parse_order(Some("3".into())) {
+        match parse_order(Some("3")) {
             OrderValue::Index(n) => assert_eq!(n, 3),
             _ => panic!("Expected Index"),
         }
@@ -781,7 +744,7 @@ mod tests {
 
     #[test]
     fn parse_order_invalid_defaults_to_last() {
-        match parse_order(Some("invalid".into())) {
+        match parse_order(Some("invalid")) {
             OrderValue::Position(s) => assert_eq!(s, "last"),
             _ => panic!("Expected Position"),
         }

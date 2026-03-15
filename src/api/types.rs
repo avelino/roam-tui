@@ -275,6 +275,47 @@ pub struct BlockRef {
     pub uid: String,
 }
 
+/// Parse an order string into an `OrderValue`.
+/// Accepts "first", "last", numeric strings, or None (defaults to "last").
+pub fn parse_order(order: Option<&str>) -> OrderValue {
+    match order {
+        None | Some("last") => OrderValue::Position("last".into()),
+        Some("first") => OrderValue::Position("first".into()),
+        Some(n) => n
+            .parse::<i64>()
+            .map(OrderValue::Index)
+            .unwrap_or(OrderValue::Position("last".into())),
+    }
+}
+
+/// Generate a short unique block UID compatible with Roam format.
+pub fn generate_block_uid() -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64;
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed) as u64;
+    let seed = nanos
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(count ^ (std::process::id() as u64));
+
+    let mut uid = String::with_capacity(9);
+    let mut val = seed;
+    for _ in 0..9 {
+        uid.push(CHARS[(val % 62) as usize] as char);
+        val /= 62;
+        val = val.wrapping_mul(2862933555777941757).wrapping_add(nanos);
+    }
+    uid
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
