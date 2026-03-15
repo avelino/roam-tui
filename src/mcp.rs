@@ -483,7 +483,7 @@ impl RoamMcp {
     }
 
     #[tool(
-        description = "Execute multiple write operations in a single API call (atomic batch). Accepts a JSON array of actions. Each action follows the same format as individual write tools. Supported actions: create-block, update-block, delete-block, move-block, create-page. Example: [{\"action\": \"create-page\", \"page\": {\"title\": \"New Page\"}}, {\"action\": \"create-block\", \"location\": {\"parent-uid\": \"page-uid\", \"order\": \"last\"}, \"block\": {\"string\": \"Content\"}}]"
+        description = "Execute multiple write operations in sequence. Each action is sent as a separate API request, stopping on the first error. Accepts a JSON array of actions. Supported actions: create-block, update-block, delete-block, move-block, create-page. Example: [{\"action\": \"create-page\", \"page\": {\"title\": \"New Page\"}}, {\"action\": \"create-block\", \"location\": {\"parent-uid\": \"page-uid\", \"order\": \"last\"}, \"block\": {\"string\": \"Content\"}}]"
     )]
     async fn batch_write(
         &self,
@@ -1297,12 +1297,13 @@ mod tests {
     // -- batch_write tool --
 
     #[tokio::test]
-    async fn batch_write_sends_batch_actions() {
+    async fn batch_write_sends_individual_requests() {
         let (server, mcp) = setup().await;
 
         Mock::given(method("POST"))
             .and(path("/write"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(2) // each action is sent as a separate request
             .mount(&server)
             .await;
 

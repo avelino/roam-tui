@@ -93,8 +93,10 @@ impl RoamClient {
     }
 
     pub async fn write_batch(&self, actions: Vec<WriteAction>) -> Result<()> {
-        let batch = WriteAction::BatchActions { actions };
-        self.write(batch).await
+        for action in actions {
+            self.write(action).await?;
+        }
+        Ok(())
     }
 }
 
@@ -220,5 +222,68 @@ mod tests {
             RoamError::Api { status, .. } => assert_eq!(status, 500),
             other => panic!("Expected Api error, got: {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn write_batch_sends_individual_requests() {
+        let (server, client) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/write"))
+            .and(header("X-Authorization", "Bearer test-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let result = client
+            .write_batch(vec![
+                WriteAction::CreatePage {
+                    page: crate::api::types::PageCreate {
+                        title: "Page 1".into(),
+                        uid: None,
+                    },
+                },
+                WriteAction::UpdateBlock {
+                    block: crate::api::types::BlockUpdate {
+                        uid: "b1".into(),
+                        string: "Updated".into(),
+                    },
+                },
+            ])
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn write_batch_stops_on_first_error() {
+        let (server, client) = setup().await;
+
+        // First request succeeds, second fails
+        Mock::given(method("POST"))
+            .and(path("/write"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("Server Error"))
+            .mount(&server)
+            .await;
+
+        let result = client
+            .write_batch(vec![
+                WriteAction::UpdateBlock {
+                    block: crate::api::types::BlockUpdate {
+                        uid: "b1".into(),
+                        string: "text".into(),
+                    },
+                },
+                WriteAction::UpdateBlock {
+                    block: crate::api::types::BlockUpdate {
+                        uid: "b2".into(),
+                        string: "text".into(),
+                    },
+                },
+            ])
+            .await;
+
+        assert!(result.is_err());
     }
 }

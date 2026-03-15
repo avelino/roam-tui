@@ -293,7 +293,11 @@ pub(super) fn spawn_write(
     let client = client.clone();
     let tx = tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = client.write(action).await {
+        let result = match action {
+            WriteAction::BatchActions { actions } => client.write_batch(actions).await,
+            single => client.write(single).await,
+        };
+        if let Err(e) = result {
             let _ = tx.send(AppMessage::ApiError(ErrorInfo::Write(e.to_string())));
         }
     });
