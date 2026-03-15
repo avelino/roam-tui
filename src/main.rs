@@ -2,7 +2,7 @@
 pub(crate) use roam_sdk::{api, error};
 
 mod app;
-mod cli;
+mod commands;
 mod config;
 mod edit_buffer;
 mod export;
@@ -305,9 +305,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             Commands::Journal { action } => match action {
-                None => cli::journal_view(&client, None).await,
+                None => commands::journal_view(&client, None).await,
                 Some(JournalAction::View { date }) => {
-                    cli::journal_view(&client, date.as_deref()).await
+                    commands::journal_view(&client, date.as_deref()).await
                 }
                 Some(JournalAction::Add {
                     text,
@@ -315,7 +315,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     order,
                     children,
                 }) => {
-                    cli::journal_add(
+                    commands::journal_add(
                         &client,
                         &text,
                         date.as_deref(),
@@ -329,23 +329,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 query,
                 blocks,
                 limit,
-            } => cli::search(&client, &query, blocks, limit).await,
+            } => commands::search(&client, &query, blocks, limit).await,
             Commands::Get { resource } => match resource {
-                GetResource::Page { title } => cli::get_page(&client, &title).await,
-                GetResource::Block { uid } => cli::get_block(&client, &uid).await,
-                GetResource::Daily { date } => cli::get_daily(&client, date.as_deref()).await,
-                GetResource::Backlinks { title } => cli::get_backlinks(&client, &title).await,
-                GetResource::Refs { uid } => cli::get_refs(&client, &uid).await,
-                GetResource::Stats => cli::get_stats(&client).await,
+                GetResource::Page { title } => commands::get_page(&client, &title).await,
+                GetResource::Block { uid } => commands::get_block(&client, &uid).await,
+                GetResource::Daily { date } => commands::get_daily(&client, date.as_deref()).await,
+                GetResource::Backlinks { title } => commands::get_backlinks(&client, &title).await,
+                GetResource::Refs { uid } => commands::get_refs(&client, &uid).await,
+                GetResource::Stats => commands::get_stats(&client).await,
             },
-            Commands::Query { query, args } => cli::query(&client, &query, args.as_deref()).await,
+            Commands::Query { query, args } => {
+                commands::query(&client, &query, args.as_deref()).await
+            }
             Commands::Export {
                 date,
                 page,
                 format,
                 output,
             } => {
-                cli::run_export(
+                commands::run_export(
                     &client,
                     date.as_deref(),
                     page.as_deref(),
@@ -357,7 +359,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Commands::Create { resource } => match resource {
                 CreateResource::Page { title, uid } => {
-                    cli::create_page(&client, &title, uid.as_deref()).await
+                    commands::create_page(&client, &title, uid.as_deref()).await
                 }
                 CreateResource::Block {
                     parent,
@@ -366,7 +368,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     uid,
                     children,
                 } => {
-                    cli::create_block(
+                    commands::create_block(
                         &client,
                         &parent,
                         &content,
@@ -379,16 +381,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             Commands::Update { resource } => match resource {
                 UpdateResource::Block { uid, content } => {
-                    cli::update_block(&client, &uid, &content).await
+                    commands::update_block(&client, &uid, &content).await
                 }
             },
             Commands::Delete { resource } => match resource {
-                DeleteResource::Block { uid } => cli::delete_block(&client, &uid).await,
-                DeleteResource::Page { uid } => cli::delete_page(&client, &uid).await,
+                DeleteResource::Block { uid } => commands::delete_block(&client, &uid).await,
+                DeleteResource::Page { uid } => commands::delete_page(&client, &uid).await,
             },
             Commands::Move { resource } => match resource {
                 MoveResource::Block { uid, parent, order } => {
-                    cli::move_block(&client, &uid, &parent, order.as_deref()).await
+                    commands::move_block(&client, &uid, &parent, order.as_deref()).await
                 }
             },
             Commands::Batch { file } => {
@@ -400,7 +402,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     std::fs::read_to_string(&file)?
                 };
-                cli::batch(&client, &input).await
+                commands::batch(&client, &input).await
             }
         };
 

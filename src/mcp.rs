@@ -1,4 +1,3 @@
-use chrono::{Datelike, Local};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{ServerCapabilities, ServerInfo},
@@ -6,12 +5,9 @@ use rmcp::{
 };
 use roam_sdk::api::client::RoamClient;
 use roam_sdk::api::queries;
-use roam_sdk::api::types::{
-    generate_block_uid, parse_order, BlockLocation, BlockRef, BlockUpdate, NewBlock, OrderValue,
-    PageCreate, WriteAction,
-};
 use serde::Deserialize;
 
+use crate::commands;
 use crate::config::AppConfig;
 
 #[derive(Clone)]
@@ -28,6 +24,8 @@ impl RoamMcp {
         }
     }
 }
+
+// -- Parameter structs (required by rmcp #[tool] macro) --
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct SearchParams {
@@ -158,39 +156,17 @@ struct MoveBlockParams {
     order: Option<String>,
 }
 
+// -- Tool handlers (delegate to commands module) --
+
 #[tool_router]
 impl RoamMcp {
     #[tool(
         description = "Search pages by title in the Roam graph. Returns matching page titles and UIDs. Use this to find pages before retrieving their content with get_page. For searching inside block content, use search_blocks instead."
     )]
     async fn search(&self, Parameters(params): Parameters<SearchParams>) -> Result<String, String> {
-        let query_str = queries::all_page_titles_query();
-        let resp = self
-            .client
-            .query(query_str, vec![])
+        commands::search(&self.client, &params.query, false, params.limit)
             .await
-            .map_err(|e| e.to_string())?;
-
-        let query_lower = params.query.to_lowercase();
-        let mut matches: Vec<serde_json::Value> = resp
-            .result
-            .iter()
-            .filter_map(|row| {
-                let title = row.first()?.as_str()?;
-                let uid = row.get(1)?.as_str()?;
-                if title.to_lowercase().contains(&query_lower) {
-                    Some(serde_json::json!({"title": title, "uid": uid}))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if let Some(limit) = params.limit {
-            matches.truncate(limit);
-        }
-
-        serde_json::to_string_pretty(&matches).map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -200,14 +176,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<GetPageParams>,
     ) -> Result<String, String> {
-        let (eid, selector) = queries::pull_page_by_title(&params.title);
-        let resp = self
-            .client
-            .pull(eid, &selector)
+        commands::get_page(&self.client, &params.title)
             .await
-            .map_err(|e| e.to_string())?;
-
-        serde_json::to_string_pretty(&resp.result).map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -217,15 +188,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<GetBlockParams>,
     ) -> Result<String, String> {
-        let eid = serde_json::json!(["block/uid", params.uid]);
-        let selector = "[:block/uid :block/string :block/order :block/open {:block/refs [:block/uid :node/title :block/string]} {:block/children ...}]";
-        let resp = self
-            .client
-            .pull(eid, selector)
+        commands::get_block(&self.client, &params.uid)
             .await
-            .map_err(|e| e.to_string())?;
-
-        serde_json::to_string_pretty(&resp.result).map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -235,29 +200,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<GetBacklinksParams>,
     ) -> Result<String, String> {
-        let query_str = queries::linked_refs_query(&params.title);
-        let resp = self
-            .client
-            .query(query_str, vec![])
+        commands::get_backlinks(&self.client, &params.title)
             .await
-            .map_err(|e| e.to_string())?;
-
-        let groups = roam_sdk::types::parse_linked_refs(&resp.result, &params.title);
-        serde_json::to_string_pretty(&serde_json::json!(groups
-            .iter()
-            .map(|g| {
-                serde_json::json!({
-                    "page_title": g.page_title,
-                    "blocks": g.blocks.iter().map(|b| {
-                        serde_json::json!({
-                            "uid": b.uid,
-                            "string": b.string,
-                        })
-                    }).collect::<Vec<_>>(),
-                })
-            })
-            .collect::<Vec<_>>()))
-        .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -267,20 +212,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<RoamQueryParams>,
     ) -> Result<String, String> {
-        let args: Vec<serde_json::Value> = match &params.args {
-            Some(args_str) => {
-                serde_json::from_str(args_str).map_err(|e| format!("Invalid args JSON: {}", e))?
-            }
-            None => vec![],
-        };
-
-        let resp = self
-            .client
-            .query(params.query, args)
+        commands::query(&self.client, &params.query, params.args.as_deref())
             .await
-            .map_err(|e| e.to_string())?;
-
-        serde_json::to_string_pretty(&resp.result).map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -290,16 +224,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<CreatePageParams>,
     ) -> Result<String, String> {
-        let action = WriteAction::CreatePage {
-            page: PageCreate {
-                title: params.title.clone(),
-                uid: params.uid,
-            },
-        };
-
-        self.client.write(action).await.map_err(|e| e.to_string())?;
-
-        Ok(format!("Created page '{}'", params.title))
+        commands::create_page(&self.client, &params.title, params.uid.as_deref())
+            .await
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -309,21 +236,16 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<CreateBlockParams>,
     ) -> Result<String, String> {
-        let action = WriteAction::CreateBlock {
-            location: BlockLocation {
-                parent_uid: params.parent_uid,
-                order: parse_order(params.order.as_deref()),
-            },
-            block: NewBlock {
-                string: params.content,
-                uid: None,
-                open: None,
-            },
-        };
-
-        self.client.write(action).await.map_err(|e| e.to_string())?;
-
-        Ok("Block created".into())
+        commands::create_block(
+            &self.client,
+            &params.parent_uid,
+            &params.content,
+            params.order.as_deref(),
+            None,
+            None,
+        )
+        .await
+        .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -333,16 +255,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<UpdateBlockParams>,
     ) -> Result<String, String> {
-        let action = WriteAction::UpdateBlock {
-            block: BlockUpdate {
-                uid: params.uid.clone(),
-                string: params.content,
-            },
-        };
-
-        self.client.write(action).await.map_err(|e| e.to_string())?;
-
-        Ok(format!("Updated block '{}'", params.uid))
+        commands::update_block(&self.client, &params.uid, &params.content)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -352,15 +267,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<DeleteBlockParams>,
     ) -> Result<String, String> {
-        let action = WriteAction::DeleteBlock {
-            block: BlockRef {
-                uid: params.uid.clone(),
-            },
-        };
-
-        self.client.write(action).await.map_err(|e| e.to_string())?;
-
-        Ok(format!("Deleted block '{}'", params.uid))
+        commands::delete_block(&self.client, &params.uid)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -370,15 +279,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<DeletePageParams>,
     ) -> Result<String, String> {
-        let action = WriteAction::DeleteBlock {
-            block: BlockRef {
-                uid: params.uid.clone(),
-            },
-        };
-
-        self.client.write(action).await.map_err(|e| e.to_string())?;
-
-        Ok(format!("Deleted page '{}'", params.uid))
+        commands::delete_page(&self.client, &params.uid)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -388,19 +291,14 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<MoveBlockParams>,
     ) -> Result<String, String> {
-        let action = WriteAction::MoveBlock {
-            block: BlockRef {
-                uid: params.uid.clone(),
-            },
-            location: BlockLocation {
-                parent_uid: params.parent_uid,
-                order: parse_order(params.order.as_deref()),
-            },
-        };
-
-        self.client.write(action).await.map_err(|e| e.to_string())?;
-
-        Ok(format!("Moved block '{}'", params.uid))
+        commands::move_block(
+            &self.client,
+            &params.uid,
+            &params.parent_uid,
+            params.order.as_deref(),
+        )
+        .await
+        .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -410,27 +308,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<GetDailyNoteParams>,
     ) -> Result<String, String> {
-        let (month, day, year) = match &params.date {
-            Some(date_str) => {
-                let date = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
-                    .map_err(|e| format!("Invalid date format (expected YYYY-MM-DD): {}", e))?;
-                (date.month(), date.day(), date.year())
-            }
-            None => {
-                let today = Local::now().date_naive();
-                (today.month(), today.day(), today.year())
-            }
-        };
-
-        let uid = queries::daily_note_uid_for_date(month, day, year);
-        let (eid, selector) = queries::pull_daily_note(&uid);
-        let resp = self
-            .client
-            .pull(eid, &selector)
+        commands::get_daily(&self.client, params.date.as_deref())
             .await
-            .map_err(|e| e.to_string())?;
-
-        serde_json::to_string_pretty(&resp.result).map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -440,36 +320,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<SearchBlocksParams>,
     ) -> Result<String, String> {
-        let query_str = queries::search_blocks_query();
-        let resp = self
-            .client
-            .query(query_str, vec![])
+        commands::search(&self.client, &params.query, true, params.limit)
             .await
-            .map_err(|e| e.to_string())?;
-
-        let query_lower = params.query.to_lowercase();
-        let limit = params.limit.unwrap_or(50);
-        let matches: Vec<serde_json::Value> = resp
-            .result
-            .iter()
-            .filter_map(|row| {
-                let uid = row.first()?.as_str()?;
-                let text = row.get(1)?.as_str()?;
-                let page_title = row.get(2)?.as_str()?;
-                if text.to_lowercase().contains(&query_lower) {
-                    Some(serde_json::json!({
-                        "uid": uid,
-                        "string": text,
-                        "page_title": page_title,
-                    }))
-                } else {
-                    None
-                }
-            })
-            .take(limit)
-            .collect();
-
-        serde_json::to_string_pretty(&matches).map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -479,20 +332,9 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<BatchWriteParams>,
     ) -> Result<String, String> {
-        let actions: Vec<WriteAction> = serde_json::from_str(&params.actions).map_err(|e| {
-            format!(
-                "Invalid actions JSON: {}. Expected an array of write action objects.",
-                e
-            )
-        })?;
-
-        let count = actions.len();
-        self.client
-            .write_batch(actions)
+        commands::batch(&self.client, &params.actions)
             .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(format!("Executed {} actions successfully", count))
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -538,70 +380,18 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<GetBlockRefsParams>,
     ) -> Result<String, String> {
-        let eid = serde_json::json!(["block/uid", params.uid]);
-        let selector =
-            "[:block/uid :block/string {:block/refs [:block/uid :node/title :block/string]}]";
-        let resp = self
-            .client
-            .pull(eid, selector)
+        commands::get_refs(&self.client, &params.uid)
             .await
-            .map_err(|e| e.to_string())?;
-
-        let refs = resp
-            .result
-            .get(":block/refs")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|r| {
-                        let uid = r.get(":block/uid")?.as_str()?;
-                        let title = r.get(":node/title").and_then(|v| v.as_str());
-                        let string = r.get(":block/string").and_then(|v| v.as_str());
-                        Some(serde_json::json!({
-                            "uid": uid,
-                            "title": title,
-                            "string": string,
-                        }))
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        serde_json::to_string_pretty(&refs).map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
         description = "Get graph statistics — total number of pages and blocks. Useful for understanding the size and scope of the Roam graph at a glance."
     )]
     async fn get_graph_stats(&self) -> Result<String, String> {
-        let page_query = queries::graph_page_count_query();
-        let block_query = queries::graph_block_count_query();
-
-        let (page_resp, block_resp) = tokio::try_join!(
-            self.client.query(page_query, vec![]),
-            self.client.query(block_query, vec![]),
-        )
-        .map_err(|e| e.to_string())?;
-
-        let page_count = page_resp
-            .result
-            .first()
-            .and_then(|r| r.first())
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-
-        let block_count = block_resp
-            .result
-            .first()
-            .and_then(|r| r.first())
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-
-        serde_json::to_string_pretty(&serde_json::json!({
-            "pages": page_count,
-            "blocks": block_count,
-        }))
-        .map_err(|e| e.to_string())
+        commands::get_stats(&self.client)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     #[tool(
@@ -611,53 +401,16 @@ impl RoamMcp {
         &self,
         Parameters(params): Parameters<CreateBlockWithChildrenParams>,
     ) -> Result<String, String> {
-        let block_uid = params
-            .uid
-            .unwrap_or_else(|| format!("mcp-{}", generate_block_uid()));
-
-        let mut actions = vec![WriteAction::CreateBlock {
-            location: BlockLocation {
-                parent_uid: params.parent_uid,
-                order: parse_order(params.order.as_deref()),
-            },
-            block: NewBlock {
-                string: params.content,
-                uid: Some(block_uid.clone()),
-                open: None,
-            },
-        }];
-
-        if let Some(children_json) = &params.children {
-            let children: Vec<String> = serde_json::from_str(children_json)
-                .map_err(|e| format!("Invalid children JSON (expected array of strings): {}", e))?;
-            for (i, child_text) in children.iter().enumerate() {
-                actions.push(WriteAction::CreateBlock {
-                    location: BlockLocation {
-                        parent_uid: block_uid.clone(),
-                        order: OrderValue::Index(i as i64),
-                    },
-                    block: NewBlock {
-                        string: child_text.clone(),
-                        uid: None,
-                        open: None,
-                    },
-                });
-            }
-        }
-
-        if actions.len() == 1 {
-            self.client
-                .write(actions.into_iter().next().unwrap())
-                .await
-                .map_err(|e| e.to_string())?;
-        } else {
-            self.client
-                .write_batch(actions)
-                .await
-                .map_err(|e| e.to_string())?;
-        }
-
-        Ok(format!("Created block '{}' with children", block_uid))
+        commands::create_block(
+            &self.client,
+            &params.parent_uid,
+            &params.content,
+            params.order.as_deref(),
+            params.uid.as_deref(),
+            params.children.as_deref(),
+        )
+        .await
+        .map_err(|e| e.to_string())
     }
 }
 
@@ -698,6 +451,7 @@ pub async fn run(config: &AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use roam_sdk::api::types::{BlockUpdate, OrderValue, PageCreate, WriteAction};
     use serde_json::json;
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -708,10 +462,11 @@ mod tests {
         (server, RoamMcp::new(client))
     }
 
-    // -- parse_order tests --
+    // -- parse_order tests (from types module, kept for coverage) --
 
     #[test]
     fn parse_order_none_defaults_to_last() {
+        use roam_sdk::api::types::parse_order;
         match parse_order(None) {
             OrderValue::Position(s) => assert_eq!(s, "last"),
             _ => panic!("Expected Position"),
@@ -720,6 +475,7 @@ mod tests {
 
     #[test]
     fn parse_order_last() {
+        use roam_sdk::api::types::parse_order;
         match parse_order(Some("last")) {
             OrderValue::Position(s) => assert_eq!(s, "last"),
             _ => panic!("Expected Position"),
@@ -728,6 +484,7 @@ mod tests {
 
     #[test]
     fn parse_order_first() {
+        use roam_sdk::api::types::parse_order;
         match parse_order(Some("first")) {
             OrderValue::Position(s) => assert_eq!(s, "first"),
             _ => panic!("Expected Position"),
@@ -736,6 +493,7 @@ mod tests {
 
     #[test]
     fn parse_order_numeric() {
+        use roam_sdk::api::types::parse_order;
         match parse_order(Some("3")) {
             OrderValue::Index(n) => assert_eq!(n, 3),
             _ => panic!("Expected Index"),
@@ -744,6 +502,7 @@ mod tests {
 
     #[test]
     fn parse_order_invalid_defaults_to_last() {
+        use roam_sdk::api::types::parse_order;
         match parse_order(Some("invalid")) {
             OrderValue::Position(s) => assert_eq!(s, "last"),
             _ => panic!("Expected Position"),
@@ -1282,7 +1041,9 @@ mod tests {
             .await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().contains("2 actions"));
+        let parsed: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(parsed["actions"], 2);
+        assert_eq!(parsed["status"], "executed");
     }
 
     #[tokio::test]
@@ -1346,7 +1107,6 @@ mod tests {
         assert!(md.contains("- First block\n"));
         assert!(md.contains("  - Child block\n"));
         assert!(md.contains("- Second block\n"));
-        // First block should come before Second block (order 0 < 1)
         let first_pos = md.find("First block").unwrap();
         let second_pos = md.find("Second block").unwrap();
         assert!(first_pos < second_pos);
@@ -1425,7 +1185,6 @@ mod tests {
         let result = mcp.get_graph_stats().await;
 
         let parsed: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
-        // Both queries hit the same mock, so both return 42
         assert_eq!(parsed["pages"], 42);
         assert_eq!(parsed["blocks"], 42);
     }
