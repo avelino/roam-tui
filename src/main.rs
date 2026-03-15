@@ -2,6 +2,7 @@
 pub(crate) use roam_sdk::{api, error};
 
 mod app;
+mod cli;
 mod config;
 mod edit_buffer;
 mod export;
@@ -15,12 +16,13 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use config::AppConfig;
+use roam_sdk::api::client::RoamClient;
 
 #[derive(Parser)]
 #[command(name = "roam", about = "Roam Research TUI and MCP server")]
 struct Cli {
     /// Run as MCP server (stdio transport)
-    #[arg(long)]
+    #[arg(long, hide = true)]
     mcp: bool,
 
     #[command(subcommand)]
@@ -29,6 +31,46 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Run as MCP server (stdio transport)
+    Mcp,
+
+    /// Journal — view or add to today's daily note (alias: j)
+    #[command(alias = "j")]
+    Journal {
+        #[command(subcommand)]
+        action: Option<JournalAction>,
+    },
+
+    /// Search pages or blocks
+    Search {
+        /// Search query string
+        query: String,
+
+        /// Search inside block content instead of page titles
+        #[arg(long, short)]
+        blocks: bool,
+
+        /// Maximum number of results
+        #[arg(long, short)]
+        limit: Option<usize>,
+    },
+
+    /// Get a resource (page, block, daily note, backlinks, refs, stats)
+    Get {
+        #[command(subcommand)]
+        resource: GetResource,
+    },
+
+    /// Run a raw Datalog query
+    Query {
+        /// Datalog query string
+        query: String,
+
+        /// JSON array of query arguments
+        #[arg(long)]
+        args: Option<String>,
+    },
+
     /// Export daily notes or pages to JSON or Markdown
     Export {
         /// Date in YYYY-MM-DD format (default: today)
@@ -47,56 +89,173 @@ enum Commands {
         #[arg(long, short)]
         output: Option<String>,
     },
+
+    /// Create a page or block
+    Create {
+        #[command(subcommand)]
+        resource: CreateResource,
+    },
+
+    /// Update a block's content
+    Update {
+        #[command(subcommand)]
+        resource: UpdateResource,
+    },
+
+    /// Delete a block or page
+    Delete {
+        #[command(subcommand)]
+        resource: DeleteResource,
+    },
+
+    /// Move a block to a new parent
+    Move {
+        #[command(subcommand)]
+        resource: MoveResource,
+    },
+
+    /// Execute batch write operations from a JSON file or stdin
+    Batch {
+        /// JSON file path (use "-" for stdin)
+        #[arg(default_value = "-")]
+        file: String,
+    },
 }
 
-async fn run_export(
-    config: &AppConfig,
-    date: Option<String>,
-    page: Option<String>,
-    format: &str,
-    output: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use chrono::{Datelike, Local, NaiveDate};
-    use roam_sdk::api::client::RoamClient;
-    use roam_sdk::api::queries;
-    use roam_sdk::api::types::DailyNote;
+#[derive(Subcommand)]
+enum JournalAction {
+    /// View today's (or a specific date's) daily note
+    View {
+        /// Date in YYYY-MM-DD format (default: today)
+        #[arg(long)]
+        date: Option<String>,
+    },
+    /// Add a block to the daily note
+    Add {
+        /// Block content
+        text: String,
 
-    let client = RoamClient::new(&config.graph.name, &config.graph.api_token);
+        /// Date in YYYY-MM-DD format (default: today)
+        #[arg(long)]
+        date: Option<String>,
 
-    let content = if let Some(title) = page {
-        let (eid, selector) = queries::pull_page_by_title(&title);
-        let resp = client.pull(eid, &selector).await?;
-        let note =
-            DailyNote::from_pull_response(Local::now().date_naive(), "".into(), &resp.result);
+        /// Position: "first", "last", or numeric index
+        #[arg(long)]
+        order: Option<String>,
 
-        match format {
-            "json" => export::blocks_to_json(&title, &note.blocks),
-            _ => export::blocks_to_markdown(&title, &note.blocks),
-        }
-    } else {
-        let date = match date {
-            Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d")?,
-            None => Local::now().date_naive(),
-        };
-        let uid = queries::daily_note_uid_for_date(date.month(), date.day(), date.year());
-        let (eid, selector) = queries::pull_daily_note(&uid);
-        let resp = client.pull(eid, &selector).await?;
-        let note = DailyNote::from_pull_response(date, uid, &resp.result);
+        /// JSON array of child block strings
+        #[arg(long)]
+        children: Option<String>,
+    },
+}
 
-        match format {
-            "json" => export::daily_notes_to_json(&[note]),
-            _ => export::daily_notes_to_markdown(&[note]),
-        }
-    };
+#[derive(Subcommand)]
+enum GetResource {
+    /// Get a page by title
+    Page {
+        /// Page title
+        title: String,
+    },
+    /// Get a block by UID
+    Block {
+        /// Block UID
+        uid: String,
+    },
+    /// Get a daily note
+    Daily {
+        /// Date in YYYY-MM-DD format (default: today)
+        #[arg(long)]
+        date: Option<String>,
+    },
+    /// Get backlinks for a page
+    Backlinks {
+        /// Page title
+        title: String,
+    },
+    /// Get outbound references from a block
+    Refs {
+        /// Block UID
+        uid: String,
+    },
+    /// Get graph statistics (page and block counts)
+    Stats,
+}
 
-    if let Some(path) = output {
-        std::fs::write(&path, &content)?;
-        eprintln!("Exported to {}", path);
-    } else {
-        print!("{}", content);
-    }
+#[derive(Subcommand)]
+enum CreateResource {
+    /// Create a new page
+    Page {
+        /// Page title
+        title: String,
 
-    Ok(())
+        /// Optional page UID
+        #[arg(long)]
+        uid: Option<String>,
+    },
+    /// Create a new block
+    Block {
+        /// Parent block or page UID
+        #[arg(long)]
+        parent: String,
+
+        /// Block content
+        content: String,
+
+        /// Position: "first", "last", or numeric index
+        #[arg(long)]
+        order: Option<String>,
+
+        /// Optional block UID
+        #[arg(long)]
+        uid: Option<String>,
+
+        /// JSON array of child block strings
+        #[arg(long)]
+        children: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum UpdateResource {
+    /// Update a block's content
+    Block {
+        /// Block UID
+        uid: String,
+
+        /// New content
+        content: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum DeleteResource {
+    /// Delete a block by UID
+    Block {
+        /// Block UID
+        uid: String,
+    },
+    /// Delete a page by UID
+    Page {
+        /// Page UID
+        uid: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum MoveResource {
+    /// Move a block to a new parent
+    Block {
+        /// Block UID to move
+        uid: String,
+
+        /// New parent UID
+        #[arg(long)]
+        parent: String,
+
+        /// Position: "first", "last", or numeric index
+        #[arg(long)]
+        order: Option<String>,
+    },
 }
 
 fn config_path() -> PathBuf {
@@ -105,9 +264,13 @@ fn config_path() -> PathBuf {
         .join("config.toml")
 }
 
+fn make_client(config: &AppConfig) -> RoamClient {
+    RoamClient::new(&config.graph.name, &config.graph.api_token)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
+    let cli_args = Cli::parse();
     let path = config_path();
 
     if !path.exists() {
@@ -128,25 +291,135 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    if cli.mcp {
+    // Handle --mcp flag (backward compat, hidden)
+    if cli_args.mcp {
         mcp::run(&config).await?;
         return Ok(());
     }
 
-    if let Some(Commands::Export {
-        date,
-        page,
-        format,
-        output,
-    }) = cli.command
-    {
-        run_export(&config, date, page, &format, output).await?;
+    if let Some(command) = cli_args.command {
+        let client = make_client(&config);
+        let result = match command {
+            Commands::Mcp => {
+                mcp::run(&config).await?;
+                return Ok(());
+            }
+            Commands::Journal { action } => match action {
+                None => cli::journal_view(&client, None).await,
+                Some(JournalAction::View { date }) => {
+                    cli::journal_view(&client, date.as_deref()).await
+                }
+                Some(JournalAction::Add {
+                    text,
+                    date,
+                    order,
+                    children,
+                }) => {
+                    cli::journal_add(
+                        &client,
+                        &text,
+                        date.as_deref(),
+                        order.as_deref(),
+                        children.as_deref(),
+                    )
+                    .await
+                }
+            },
+            Commands::Search {
+                query,
+                blocks,
+                limit,
+            } => cli::search(&client, &query, blocks, limit).await,
+            Commands::Get { resource } => match resource {
+                GetResource::Page { title } => cli::get_page(&client, &title).await,
+                GetResource::Block { uid } => cli::get_block(&client, &uid).await,
+                GetResource::Daily { date } => cli::get_daily(&client, date.as_deref()).await,
+                GetResource::Backlinks { title } => cli::get_backlinks(&client, &title).await,
+                GetResource::Refs { uid } => cli::get_refs(&client, &uid).await,
+                GetResource::Stats => cli::get_stats(&client).await,
+            },
+            Commands::Query { query, args } => cli::query(&client, &query, args.as_deref()).await,
+            Commands::Export {
+                date,
+                page,
+                format,
+                output,
+            } => {
+                cli::run_export(
+                    &client,
+                    date.as_deref(),
+                    page.as_deref(),
+                    &format,
+                    output.as_deref(),
+                )
+                .await?;
+                return Ok(());
+            }
+            Commands::Create { resource } => match resource {
+                CreateResource::Page { title, uid } => {
+                    cli::create_page(&client, &title, uid.as_deref()).await
+                }
+                CreateResource::Block {
+                    parent,
+                    content,
+                    order,
+                    uid,
+                    children,
+                } => {
+                    cli::create_block(
+                        &client,
+                        &parent,
+                        &content,
+                        order.as_deref(),
+                        uid.as_deref(),
+                        children.as_deref(),
+                    )
+                    .await
+                }
+            },
+            Commands::Update { resource } => match resource {
+                UpdateResource::Block { uid, content } => {
+                    cli::update_block(&client, &uid, &content).await
+                }
+            },
+            Commands::Delete { resource } => match resource {
+                DeleteResource::Block { uid } => cli::delete_block(&client, &uid).await,
+                DeleteResource::Page { uid } => cli::delete_page(&client, &uid).await,
+            },
+            Commands::Move { resource } => match resource {
+                MoveResource::Block { uid, parent, order } => {
+                    cli::move_block(&client, &uid, &parent, order.as_deref()).await
+                }
+            },
+            Commands::Batch { file } => {
+                let input = if file == "-" {
+                    use std::io::Read;
+                    let mut buf = String::new();
+                    std::io::stdin().read_to_string(&mut buf)?;
+                    buf
+                } else {
+                    std::fs::read_to_string(&file)?
+                };
+                cli::batch(&client, &input).await
+            }
+        };
+
+        match result {
+            Ok(output) => {
+                println!("{}", output);
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+
         return Ok(());
     }
 
+    // No subcommand — launch TUI
     let mut terminal = ratatui::init();
 
-    // Enable enhanced keyboard protocol (reports Cmd/Super on supported terminals)
     let _ = crossterm::execute!(
         std::io::stdout(),
         crossterm::event::PushKeyboardEnhancementFlags(
