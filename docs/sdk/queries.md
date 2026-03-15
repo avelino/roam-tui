@@ -52,6 +52,48 @@ let (eid, selector) = queries::pull_page_by_title("Projects");
 let resp = client.pull(eid, &selector).await?;
 ```
 
+### `all_page_titles_query`
+
+Build a Datalog query to fetch all page titles and UIDs.
+
+```rust
+pub fn all_page_titles_query() -> String
+```
+
+Returns rows of `[title, uid]`.
+
+### `search_blocks_query`
+
+Build a Datalog query to fetch all blocks with their text and parent page title.
+
+```rust
+pub fn search_blocks_query() -> String
+```
+
+Returns rows of `[uid, block_string, page_title]`. Useful for full-text search when combined with client-side filtering.
+
+## Graph statistics
+
+### `graph_page_count_query`
+
+Count total pages in the graph.
+
+```rust
+pub fn graph_page_count_query() -> String
+```
+
+Returns `[[count]]`.
+
+### `graph_block_count_query`
+
+Count total blocks in the graph.
+
+```rust
+pub fn graph_block_count_query() -> String
+```
+
+Returns `[[count]]`.
+
 ## Linked references
 
 ### `linked_refs_query`

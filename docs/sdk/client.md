@@ -111,6 +111,46 @@ client.write(WriteAction::UpdateBlock {
 
 See [Types](types.md) for all `WriteAction` variants.
 
+### `write_batch`
+
+Execute multiple write operations in a single API call using `batch-actions`.
+
+```rust
+pub async fn write_batch(&self, actions: Vec<WriteAction>) -> Result<()>
+```
+
+**Parameters:**
+
+- `actions` — a list of `WriteAction` variants to execute atomically
+
+**Example:**
+
+```rust
+use roam_sdk::types::*;
+
+client.write_batch(vec![
+    WriteAction::CreatePage {
+        page: PageCreate {
+            title: "New Page".into(),
+            uid: None,
+        },
+    },
+    WriteAction::CreateBlock {
+        location: BlockLocation {
+            parent_uid: "page-uid".into(),
+            order: OrderValue::Position("last".into()),
+        },
+        block: NewBlock {
+            string: "First block".into(),
+            uid: None,
+            open: None,
+        },
+    },
+]).await?;
+```
+
+Internally wraps the actions in a `WriteAction::BatchActions` and sends a single request.
+
 ## Authentication
 
 The client sends the API token as a Bearer token in the `X-Authorization` header on every request. All communication goes over HTTPS via rustls (no OpenSSL needed).

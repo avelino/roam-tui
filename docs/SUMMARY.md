@@ -1,6 +1,7 @@
 # Summary
 
 - [Introduction](README.md)
+- [Export](export.md)
 
 ## TUI
 
@@ -8,6 +9,13 @@
 - [Installation](tui/installation.md)
 - [Configuration](tui/configuration.md)
 - [Keybindings](tui/keybindings.md)
+- [Multi-Block Selection](tui/multi-select.md)
+
+## MCP Server
+
+- [Overview](mcp/README.md)
+- [Setup](mcp/setup.md)
+- [Tools Reference](mcp/tools.md)
 
 ## SDK
 
