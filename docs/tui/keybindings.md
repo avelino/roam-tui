@@ -35,6 +35,9 @@ preset = "vim"  # or "emacs" or "vscode"
 | Toggle sidebar | `b` |
 | Navigate back | `Ctrl+O` / `Shift+Left` / `Alt+[` |
 | Navigate forward | `Shift+Right` / `Alt+]` |
+| Export current view | `Ctrl+E` |
+| Select block up | `Shift+Up` |
+| Select block down | `Shift+Down` |
 | Help | `?` |
 | Quit | `q` |
 
@@ -70,6 +73,9 @@ preset = "vim"  # or "emacs" or "vscode"
 | Go to today | `Ctrl+D` |
 | Navigate back | `Shift+Left` / `Alt+[` |
 | Navigate forward | `Shift+Right` / `Alt+]` |
+| Export current view | `Alt+E` |
+| Select block up | `Shift+Up` |
+| Select block down | `Shift+Down` |
 | Help | `Ctrl+H` |
 | Quit | `Ctrl+Q` |
 
@@ -94,6 +100,9 @@ preset = "vim"  # or "emacs" or "vscode"
 | Toggle sidebar | `Ctrl+B` |
 | Navigate back | `Shift+Left` / `Alt+[` |
 | Navigate forward | `Shift+Right` / `Alt+]` |
+| Export current view | `Ctrl+E` |
+| Select block up | `Shift+Up` |
+| Select block down | `Shift+Down` |
 | Help | `F1` |
 | Quit | `Ctrl+Q` |
 
@@ -119,4 +128,4 @@ Examples: `Ctrl+k`, `Alt+Enter`, `Shift+Left`, `Ctrl+Shift+Z`.
 
 ### Available actions
 
-`quit`, `move_up`, `move_down`, `cursor_left`, `cursor_right`, `collapse`, `expand`, `enter`, `exit`, `edit_block`, `create_block`, `indent`, `unindent`, `undo`, `redo`, `search`, `quick_switcher`, `next_day`, `prev_day`, `go_daily`, `toggle_sidebar`, `nav_back`, `nav_forward`, `help`
+`quit`, `move_up`, `move_down`, `cursor_left`, `cursor_right`, `collapse`, `expand`, `enter`, `exit`, `edit_block`, `create_block`, `indent`, `unindent`, `undo`, `redo`, `search`, `quick_switcher`, `next_day`, `prev_day`, `go_daily`, `toggle_sidebar`, `nav_back`, `nav_forward`, `export`, `select_up`, `select_down`, `help`

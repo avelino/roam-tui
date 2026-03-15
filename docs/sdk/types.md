@@ -96,10 +96,29 @@ pub enum WriteAction {
     UpdateBlock { block: BlockUpdate },
     DeleteBlock { block: BlockRef },
     MoveBlock { block: BlockRef, location: BlockLocation },
+    CreatePage { page: PageCreate },
+    BatchActions { actions: Vec<WriteAction> },
 }
 ```
 
-Serializes with a `"action"` tag: `"create-block"`, `"update-block"`, `"delete-block"`, `"move-block"`.
+Serializes with a `"action"` tag: `"create-block"`, `"update-block"`, `"delete-block"`, `"move-block"`, `"create-page"`, `"batch-actions"`.
+
+`WriteAction` implements both `Serialize` and `Deserialize`, so you can parse action JSON:
+
+```rust
+let actions: Vec<WriteAction> = serde_json::from_str(json_string)?;
+```
+
+### `PageCreate`
+
+Data for creating a page.
+
+```rust
+pub struct PageCreate {
+    pub title: String,
+    pub uid: Option<String>,
+}
+```
 
 ### `BlockLocation`
 
