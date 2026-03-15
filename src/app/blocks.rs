@@ -333,12 +333,33 @@ pub fn move_block_in_days(
 }
 
 pub(super) fn generate_uid() -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_nanos();
-    format!("tui-{:x}", nanos)
+        .as_nanos() as u64;
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed) as u64;
+
+    // Mix timestamp, counter, and process id for uniqueness
+    let seed = nanos
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(count ^ (std::process::id() as u64));
+
+    let mut uid = String::with_capacity(9);
+    let mut val = seed;
+    for _ in 0..9 {
+        uid.push(CHARS[(val % 62) as usize] as char);
+        val /= 62;
+        // Remix to avoid sequential patterns
+        val = val.wrapping_mul(2862933555777941757).wrapping_add(nanos);
+    }
+    uid
 }
 
 pub(crate) fn format_roam_daily_title(date: NaiveDate) -> String {
@@ -365,4 +386,34 @@ pub(crate) fn format_roam_daily_title(date: NaiveDate) -> String {
         _ => "th",
     };
     format!("{} {}{}, {}", month, day, suffix, date.year())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_uid_is_9_chars() {
+        let uid = generate_uid();
+        assert_eq!(uid.len(), 9, "UID should be 9 chars, got: {}", uid);
+    }
+
+    #[test]
+    fn generate_uid_is_alphanumeric() {
+        let uid = generate_uid();
+        assert!(
+            uid.chars().all(|c| c.is_ascii_alphanumeric()),
+            "UID should be alphanumeric, got: {}",
+            uid
+        );
+    }
+
+    #[test]
+    fn generate_uid_is_unique() {
+        let mut uids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            let uid = generate_uid();
+            assert!(uids.insert(uid.clone()), "Duplicate UID: {}", uid);
+        }
+    }
 }
