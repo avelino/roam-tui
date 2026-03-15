@@ -91,6 +91,11 @@ impl RoamClient {
 
         Ok(())
     }
+
+    pub async fn write_batch(&self, actions: Vec<WriteAction>) -> Result<()> {
+        let batch = WriteAction::BatchActions { actions };
+        self.write(batch).await
+    }
 }
 
 #[cfg(test)]

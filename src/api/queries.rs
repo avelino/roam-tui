@@ -26,6 +26,18 @@ pub fn all_page_titles_query() -> String {
     "[:find ?title ?uid :where [?e :node/title ?title] [?e :block/uid ?uid]]".to_string()
 }
 
+pub fn search_blocks_query() -> String {
+    "[:find ?uid ?s ?page-title :where [?b :block/string ?s] [?b :block/uid ?uid] [?b :block/page ?p] [?p :node/title ?page-title]]".to_string()
+}
+
+pub fn graph_page_count_query() -> String {
+    "[:find (count ?e) :where [?e :node/title]]".to_string()
+}
+
+pub fn graph_block_count_query() -> String {
+    "[:find (count ?b) :where [?b :block/string]]".to_string()
+}
+
 fn page_selector() -> String {
     "[:block/uid :node/title :block/string {:block/children [:block/uid :block/string :block/order :block/open {:block/refs [:block/uid :node/title :block/string]} {:block/children ...}]}]".to_string()
 }
