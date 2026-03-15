@@ -113,7 +113,7 @@ See [Types](types.md) for all `WriteAction` variants.
 
 ### `write_batch`
 
-Execute multiple write operations in a single API call using `batch-actions`.
+Execute multiple write operations in sequence. Each action is sent as an individual API request, stopping on the first error.
 
 ```rust
 pub async fn write_batch(&self, actions: Vec<WriteAction>) -> Result<()>
@@ -149,7 +149,7 @@ client.write_batch(vec![
 ]).await?;
 ```
 
-Internally wraps the actions in a `WriteAction::BatchActions` and sends a single request.
+Sends each action as a separate API request in order. Stops and returns the error if any request fails.
 
 ## Authentication
 

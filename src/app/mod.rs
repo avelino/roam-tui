@@ -3699,6 +3699,53 @@ mod tests {
     }
 
     #[test]
+    fn editing_placeholder_empty_then_again_with_text_sends_create() {
+        use crate::api::types::WriteAction;
+
+        let mut state = AppState::new("test-graph", vec![], vec![]);
+        state.loading = false;
+        state.status_message = None;
+
+        let empty_note = make_empty_note(2026, 3, 20);
+        handle_daily_note_loaded(&mut state, empty_note);
+
+        let placeholder_uid = state.days.last().unwrap().blocks[0].uid.clone();
+        state.selected_block = state.flat_block_count() - 1;
+
+        // First edit: enter and exit without typing
+        enter_insert_mode(&mut state);
+        handle_insert_key(&mut state, &KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        // Placeholder should STILL be tracked
+        assert!(
+            state.placeholder_uids.contains(&placeholder_uid),
+            "Placeholder must remain tracked after empty edit"
+        );
+
+        // Second edit: now type something
+        enter_insert_mode(&mut state);
+        handle_insert_key(
+            &mut state,
+            &KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT),
+        );
+        let write_action =
+            handle_insert_key(&mut state, &KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        // Should send CreateBlock, NOT UpdateBlock
+        match write_action {
+            Some(WriteAction::CreateBlock { block, .. }) => {
+                assert_eq!(block.uid, Some(placeholder_uid.clone()));
+            }
+            Some(WriteAction::UpdateBlock { .. }) => {
+                panic!("BUG: Second edit of placeholder must send CreateBlock, not UpdateBlock");
+            }
+            other => {
+                panic!("Expected CreateBlock, got: {:?}", other);
+            }
+        }
+    }
+
+    #[test]
     fn editing_real_block_sends_update() {
         use crate::api::types::WriteAction;
 

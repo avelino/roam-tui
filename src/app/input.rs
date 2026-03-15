@@ -434,10 +434,10 @@ pub(super) fn finalize_insert(state: &mut AppState) -> Option<WriteAction> {
         finalize_create(state, info, block_uid, new_text)
     } else if is_placeholder {
         // Placeholder block edited — treat as create, not update
-        state.placeholder_uids.remove(&block_uid);
         if new_text.is_empty() {
-            return None; // No change, leave placeholder as is
+            return None; // No change, keep placeholder tracked
         }
+        state.placeholder_uids.remove(&block_uid);
         let info = resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block);
         if let Some(info) = info {
             state.undo_stack.push(UndoEntry::CreateBlock {

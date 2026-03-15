@@ -186,7 +186,7 @@ Move a block to a new parent.
 
 ### batch_write
 
-Execute multiple write operations in a single API call.
+Execute multiple write operations in sequence. Each action is sent as an individual API request, stopping on the first error.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
