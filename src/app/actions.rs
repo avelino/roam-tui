@@ -1,5 +1,6 @@
 use crate::api::types::Block;
 use crate::edit_buffer::EditBuffer;
+use crate::export;
 use crate::keys::preset::Action;
 use crate::markdown;
 
@@ -14,7 +15,7 @@ use super::search::{filter_blocks, SEARCH_LIMIT};
 use super::search::{filter_page_titles, QUICK_SWITCHER_LIMIT};
 use super::state::{
     count_blocks_recursive, AppState, CreateInfo, InputMode, LinkPickerState, LinkedRefItem,
-    LoadRequest, QuickSwitcherState, SearchState, ViewMode, ViewSnapshot,
+    LoadRequest, QuickSwitcherState, SearchState, Selection, ViewMode, ViewSnapshot,
 };
 
 pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadRequest> {
@@ -26,6 +27,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
         Action::MoveUp => {
             if state.selected_block > 0 {
                 state.selected_block -= 1;
+                state.selection = Selection::Single(state.selected_block);
                 state.cursor_col = 0;
             }
             None
@@ -59,6 +61,7 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
             // Navigate down regardless
             if state.selected_block < total - 1 {
                 state.selected_block += 1;
+                state.selection = Selection::Single(state.selected_block);
                 state.cursor_col = 0;
             }
 
@@ -368,6 +371,82 @@ pub fn handle_action(state: &mut AppState, action: &Action) -> Option<LoadReques
                 debounce_ticks: 0,
                 fetching: false,
             });
+            None
+        }
+        Action::SelectUp => {
+            if state.selected_block > 0 {
+                let anchor = match &state.selection {
+                    Selection::Single(i) => *i,
+                    Selection::Range { anchor, .. } => *anchor,
+                };
+                state.selected_block -= 1;
+                state.selection = Selection::Range {
+                    anchor,
+                    head: state.selected_block,
+                };
+                state.cursor_col = 0;
+            }
+            None
+        }
+        Action::SelectDown => {
+            let total = state.total_navigable_count();
+            if total > 0 && state.selected_block < total - 1 {
+                let anchor = match &state.selection {
+                    Selection::Single(i) => *i,
+                    Selection::Range { anchor, .. } => *anchor,
+                };
+                state.selected_block += 1;
+                state.selection = Selection::Range {
+                    anchor,
+                    head: state.selected_block,
+                };
+                state.cursor_col = 0;
+            }
+            None
+        }
+        Action::Export => {
+            let title = match &state.view_mode {
+                ViewMode::DailyNotes => "daily-notes".to_string(),
+                ViewMode::Page { title } => title.clone(),
+            };
+
+            let content = match &state.view_mode {
+                ViewMode::DailyNotes => export::daily_notes_to_markdown(&state.days),
+                ViewMode::Page { title } => {
+                    if let Some(day) = state.days.first() {
+                        export::blocks_to_markdown(title, &day.blocks)
+                    } else {
+                        String::new()
+                    }
+                }
+            };
+
+            let export_dir = directories::UserDirs::new()
+                .map(|d| d.home_dir().to_path_buf())
+                .unwrap_or_default()
+                .join("roam-export");
+            let _ = std::fs::create_dir_all(&export_dir);
+            let safe_title = title
+                .chars()
+                .map(|c| {
+                    if c.is_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect::<String>();
+            let filename = format!("{}.md", safe_title);
+            let path = export_dir.join(&filename);
+
+            match std::fs::write(&path, &content) {
+                Ok(_) => {
+                    state.status_message = Some(format!("Exported to {}", path.display()));
+                }
+                Err(e) => {
+                    state.status_message = Some(format!("Export failed: {}", e));
+                }
+            }
             None
         }
         _ => None,

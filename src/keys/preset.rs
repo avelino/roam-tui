@@ -28,6 +28,9 @@ pub enum Action {
     CursorRight,
     NavBack,
     NavForward,
+    Export,
+    SelectUp,
+    SelectDown,
 }
 
 impl Action {
@@ -57,6 +60,9 @@ impl Action {
             "cursor_right" => Some(Self::CursorRight),
             "nav_back" => Some(Self::NavBack),
             "nav_forward" => Some(Self::NavForward),
+            "export" => Some(Self::Export),
+            "select_up" => Some(Self::SelectUp),
+            "select_down" => Some(Self::SelectDown),
             _ => None,
         }
     }
@@ -87,6 +93,9 @@ impl Action {
             Self::CursorRight => "cursor →",
             Self::NavBack => "back",
             Self::NavForward => "forward",
+            Self::Export => "export",
+            Self::SelectUp => "select ↑",
+            Self::SelectDown => "select ↓",
         }
     }
 }
@@ -144,6 +153,9 @@ pub fn vim_preset() -> HashMap<KeyEvent, Action> {
     m.insert(shift(KeyCode::Right), Action::NavForward);
     m.insert(alt(KeyCode::Char('[')), Action::NavBack);
     m.insert(alt(KeyCode::Char(']')), Action::NavForward);
+    m.insert(ctrl(KeyCode::Char('e')), Action::Export);
+    m.insert(shift(KeyCode::Up), Action::SelectUp);
+    m.insert(shift(KeyCode::Down), Action::SelectDown);
     m
 }
 
@@ -178,6 +190,9 @@ pub fn emacs_preset() -> HashMap<KeyEvent, Action> {
     m.insert(alt(KeyCode::Char('[')), Action::NavBack);
     m.insert(alt(KeyCode::Char(']')), Action::NavForward);
     m.insert(alt(KeyCode::Char('u')), Action::QuickSwitcher);
+    m.insert(alt(KeyCode::Char('e')), Action::Export);
+    m.insert(shift(KeyCode::Up), Action::SelectUp);
+    m.insert(shift(KeyCode::Down), Action::SelectDown);
     m
 }
 
@@ -212,6 +227,9 @@ pub fn vscode_preset() -> HashMap<KeyEvent, Action> {
     m.insert(shift(KeyCode::Right), Action::NavForward);
     m.insert(alt(KeyCode::Char('[')), Action::NavBack);
     m.insert(alt(KeyCode::Char(']')), Action::NavForward);
+    m.insert(ctrl(KeyCode::Char('e')), Action::Export);
+    m.insert(shift(KeyCode::Up), Action::SelectUp);
+    m.insert(shift(KeyCode::Down), Action::SelectDown);
     m
 }
 
