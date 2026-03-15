@@ -1,6 +1,6 @@
 # roam-sdk
 
-A Rust SDK and terminal UI for [Roam Research](https://roamresearch.com).
+A Rust SDK, terminal UI, and MCP server for [Roam Research](https://roamresearch.com).
 
 The `roam-sdk` crate provides three things in one package:
 
