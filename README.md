@@ -4,7 +4,7 @@
 [![Crates.io](https://img.shields.io/crates/v/roam-sdk)](https://crates.io/crates/roam-sdk)
 [![npm](https://img.shields.io/npm/v/roam-tui)](https://www.npmjs.com/package/roam-tui)
 
-A fast, keyboard-driven terminal client and Rust SDK for [Roam Research](https://roamresearch.com). Navigate, edit, and search your knowledge graph without leaving the terminal — or use the SDK to build your own tools.
+A fast, keyboard-driven terminal client, MCP server, and Rust SDK for [Roam Research](https://roamresearch.com). Navigate, edit, and search your knowledge graph without leaving the terminal — connect AI assistants via MCP — or use the SDK to build your own tools.
 
 **[Documentation](https://roam-tui.avelino.run)** | **[crates.io](https://crates.io/crates/roam-sdk)**
 
@@ -288,34 +288,6 @@ ROAM_GRAPH_NAME=my-graph
 ROAM_GRAPH_API__TOKEN=roam-graph-token-XXXXX
 ```
 
-## Architecture
-
-```
-src/
-  main.rs             Entry point, CLI args (--mcp or TUI)
-  mcp.rs              MCP server (11 tools over stdio)
-  app/                TUI state machine, event loop, actions
-  config.rs           TOML + env var configuration
-  edit_buffer.rs      Text editing with cursor management
-  markdown.rs         Roam-flavored markdown parser
-  highlight.rs        Tree-sitter syntax highlighting
-  api/
-    client.rs         HTTP client (reqwest + rustls)
-    queries.rs        Datalog query builders
-    types.rs          Block, DailyNote, WriteAction types
-  keys/
-    mod.rs            Keybinding resolution
-    preset.rs         vim/emacs/vscode presets
-    parser.rs         Key string parser ("Ctrl+k" → KeyEvent)
-  ui/
-    mod.rs            Layout + popups (search, help, autocomplete)
-    header.rs         Graph name + date
-    main_area.rs      Block tree rendering
-    status_bar.rs     Hints + mode indicator
-```
-
-Built on [Ratatui](https://ratatui.rs) + [Tokio](https://tokio.rs) + [Roam Backend API](https://roamresearch.com/#/app/developer-documentation).
-
 ## Roadmap
 
 What's working now and what's next.
@@ -342,7 +314,9 @@ What's working now and what's next.
 - [x] Quick switcher (fuzzy page navigation)
 - [x] Linked references / backlinks panel
 - [x] Page creation from `[[links]]` and Quick Switcher
-- [x] MCP server (`--mcp` flag, 11 tools, npm distribution)
+- [x] MCP server (`--mcp` flag, 18 tools, npm distribution)
+- [x] Export to markdown and JSON (CLI + TUI keybinding)
+- [x] Multi-block selection with batch operations (Shift+Up/Down)
 
 ### Planned
 
@@ -356,7 +330,7 @@ What's working now and what's next.
 ```bash
 git clone https://github.com/avelino/roam-tui
 cd roam-tui
-cargo test     # 504 tests
+cargo test     # 551 tests
 cargo run      # requires config with valid API token
 ```
 

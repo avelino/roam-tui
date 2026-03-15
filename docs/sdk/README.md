@@ -6,7 +6,7 @@
 
 | Module | What's inside |
 |---|---|
-| `RoamClient` | Async HTTP client with `pull`, `query`, and `write` methods |
+| `RoamClient` | Async HTTP client with `pull`, `query`, `write`, and `write_batch` methods |
 | `types` | `Block`, `DailyNote`, `WriteAction`, `LinkedRefGroup`, and more |
 | `queries` | Helpers to build Datalog queries and pull selectors |
 | `RoamError` | Typed errors for API, network, and parsing failures |
@@ -15,7 +15,7 @@
 
 - **Async-first** — built on `reqwest` + `tokio`
 - **rustls** — no OpenSSL dependency
-- **Typed mutations** — `WriteAction` enum covers create, update, delete, and move
+- **Typed mutations** — `WriteAction` enum covers create, update, delete, move, and batch operations
 - **Raw results where needed** — pull responses return `serde_json::Value` for flexibility with Roam's dynamic schema
 
 ## Example

@@ -13,6 +13,8 @@
 - Linked references section per day/page
 - Syntax highlighting for fenced code blocks (14 languages)
 - Vim, Emacs, and VSCode keybinding presets
+- [Multi-block selection](multi-select.md) with batch delete, indent, and dedent
+- [Export](../export.md) current view to markdown (Ctrl+E)
 - Dark and light themes
 - Auto-refresh every 30 seconds
 

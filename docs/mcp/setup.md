@@ -18,9 +18,7 @@ Same config file as the TUI (`~/.config/roam-tui/config.toml`):
 ```toml
 [graph]
 name = "your-graph-name"
-
-[graph.api]
-token = "roam-graph-token-..."
+api_token = "roam-graph-token-..."
 ```
 
 ## Client configuration

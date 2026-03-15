@@ -10,7 +10,7 @@ Or add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-roam-sdk = "0.1"
+roam-sdk = "0.3"
 tokio = { version = "1", features = ["full"] }
 ```
 
