@@ -210,14 +210,14 @@ pub fn parse_linked_refs(
         .collect()
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PageCreate {
     pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub uid: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "action")]
 #[allow(clippy::enum_variant_names)]
 pub enum WriteAction {
@@ -237,38 +237,40 @@ pub enum WriteAction {
     },
     #[serde(rename = "create-page")]
     CreatePage { page: PageCreate },
+    #[serde(rename = "batch-actions")]
+    BatchActions { actions: Vec<WriteAction> },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BlockLocation {
     #[serde(rename = "parent-uid")]
     pub parent_uid: String,
     pub order: OrderValue,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OrderValue {
     Index(i64),
     Position(String),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NewBlock {
     pub string: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub uid: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub open: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BlockUpdate {
     pub uid: String,
     pub string: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BlockRef {
     pub uid: String,
 }

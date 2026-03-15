@@ -1,3 +1,4 @@
+use chrono::{Datelike, Local};
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{ServerCapabilities, ServerInfo},
@@ -42,6 +43,54 @@ fn parse_order(order: Option<String>) -> OrderValue {
 struct SearchParams {
     /// Search query to filter page titles (case-insensitive substring match)
     query: String,
+    /// Maximum number of results to return (default: no limit)
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct SearchBlocksParams {
+    /// Search query to find in block content (case-insensitive substring match)
+    query: String,
+    /// Maximum number of results to return (default: 50)
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GetDailyNoteParams {
+    /// Date in YYYY-MM-DD format (e.g. "2026-03-15"). If omitted, returns today's daily note.
+    date: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ExportPageAsMarkdownParams {
+    /// Page title to export as markdown
+    title: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GetBlockRefsParams {
+    /// Block UID to get outbound references for
+    uid: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct BatchWriteParams {
+    /// JSON array of write actions. Each action is an object with "action" field ("create-block", "update-block", "delete-block", "move-block", "create-page") and corresponding fields. Example: [{"action": "create-block", "location": {"parent-uid": "abc", "order": "last"}, "block": {"string": "Hello"}}, {"action": "update-block", "block": {"uid": "xyz", "string": "Updated"}}]
+    actions: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct CreateBlockWithChildrenParams {
+    /// UID of the parent block or page
+    parent_uid: String,
+    /// Block content (Roam markdown)
+    content: String,
+    /// Position: "first", "last", or numeric index
+    order: Option<String>,
+    /// Optional UID for the new block (auto-generated if omitted)
+    uid: Option<String>,
+    /// JSON array of child block strings to create nested under this block. Example: ["child 1", "child 2"]
+    children: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -121,7 +170,9 @@ struct MoveBlockParams {
 
 #[tool_router]
 impl RoamMcp {
-    #[tool(description = "Search pages by title. Returns matching page titles and UIDs.")]
+    #[tool(
+        description = "Search pages by title in the Roam graph. Returns matching page titles and UIDs. Use this to find pages before retrieving their content with get_page. For searching inside block content, use search_blocks instead."
+    )]
     async fn search(&self, Parameters(params): Parameters<SearchParams>) -> Result<String, String> {
         let query_str = queries::all_page_titles_query();
         let resp = self
@@ -131,7 +182,7 @@ impl RoamMcp {
             .map_err(|e| e.to_string())?;
 
         let query_lower = params.query.to_lowercase();
-        let matches: Vec<serde_json::Value> = resp
+        let mut matches: Vec<serde_json::Value> = resp
             .result
             .iter()
             .filter_map(|row| {
@@ -145,10 +196,16 @@ impl RoamMcp {
             })
             .collect();
 
+        if let Some(limit) = params.limit {
+            matches.truncate(limit);
+        }
+
         serde_json::to_string_pretty(&matches).map_err(|e| e.to_string())
     }
 
-    #[tool(description = "Get a page by title with all its blocks and children.")]
+    #[tool(
+        description = "Get a page by title with its full block tree (children, refs, order). Returns the raw Roam pull result with :node/title, :block/uid, :block/children, :block/string, :block/refs. Use search first to find the exact page title."
+    )]
     async fn get_page(
         &self,
         Parameters(params): Parameters<GetPageParams>,
@@ -163,7 +220,9 @@ impl RoamMcp {
         serde_json::to_string_pretty(&resp.result).map_err(|e| e.to_string())
     }
 
-    #[tool(description = "Get a block by UID with its children.")]
+    #[tool(
+        description = "Get a block by UID with its full subtree (children, refs, order, open/collapsed state). Use search or get_page first to find block UIDs."
+    )]
     async fn get_block(
         &self,
         Parameters(params): Parameters<GetBlockParams>,
@@ -179,7 +238,9 @@ impl RoamMcp {
         serde_json::to_string_pretty(&resp.result).map_err(|e| e.to_string())
     }
 
-    #[tool(description = "Get backlinks (blocks that reference a page by title).")]
+    #[tool(
+        description = "Get backlinks — all blocks across the graph that reference a page by title. Returns results grouped by source page. Useful for discovering connections and seeing how a concept is used across your notes."
+    )]
     async fn get_backlinks(
         &self,
         Parameters(params): Parameters<GetBacklinksParams>,
@@ -209,7 +270,9 @@ impl RoamMcp {
         .map_err(|e| e.to_string())
     }
 
-    #[tool(description = "Run a raw Datalog query against the Roam graph.")]
+    #[tool(
+        description = "Run a raw Datalog query against the Roam graph. Example queries: find all pages: '[:find ?title ?uid :where [?e :node/title ?title] [?e :block/uid ?uid]]', find blocks containing text: '[:find ?uid ?s :in $ ?search :where [?b :block/string ?s] [?b :block/uid ?uid] [(clojure.string/includes? ?s ?search)]]' with args '[\"search term\"]'. Returns a 2D array of results."
+    )]
     async fn roam_query(
         &self,
         Parameters(params): Parameters<RoamQueryParams>,
@@ -230,7 +293,9 @@ impl RoamMcp {
         serde_json::to_string_pretty(&resp.result).map_err(|e| e.to_string())
     }
 
-    #[tool(description = "Create a new page in the Roam graph.")]
+    #[tool(
+        description = "Create a new page in the Roam graph. The page will be empty — use create_block to add content to it afterwards. To create a page with initial content, use batch_write instead."
+    )]
     async fn create_page(
         &self,
         Parameters(params): Parameters<CreatePageParams>,
@@ -247,7 +312,9 @@ impl RoamMcp {
         Ok(format!("Created page '{}'", params.title))
     }
 
-    #[tool(description = "Create a new block under a parent block or page.")]
+    #[tool(
+        description = "Create a new block under a parent block or page. For creating a block with nested children in one call, use create_block_with_children. For creating multiple blocks at once, use batch_write."
+    )]
     async fn create_block(
         &self,
         Parameters(params): Parameters<CreateBlockParams>,
@@ -269,7 +336,9 @@ impl RoamMcp {
         Ok("Block created".into())
     }
 
-    #[tool(description = "Update the content of an existing block.")]
+    #[tool(
+        description = "Update the text content of an existing block. Use get_block or get_page first to find the block UID. For updating multiple blocks at once, use batch_write."
+    )]
     async fn update_block(
         &self,
         Parameters(params): Parameters<UpdateBlockParams>,
@@ -286,7 +355,9 @@ impl RoamMcp {
         Ok(format!("Updated block '{}'", params.uid))
     }
 
-    #[tool(description = "Delete a block by UID.")]
+    #[tool(
+        description = "Delete a block by UID. This removes the block and all its children permanently. For deleting multiple blocks at once, use batch_write."
+    )]
     async fn delete_block(
         &self,
         Parameters(params): Parameters<DeleteBlockParams>,
@@ -302,7 +373,9 @@ impl RoamMcp {
         Ok(format!("Deleted block '{}'", params.uid))
     }
 
-    #[tool(description = "Delete a page by UID.")]
+    #[tool(
+        description = "Delete a page by UID. This removes the page and all its blocks permanently. Use search to find the page UID first."
+    )]
     async fn delete_page(
         &self,
         Parameters(params): Parameters<DeletePageParams>,
@@ -318,7 +391,9 @@ impl RoamMcp {
         Ok(format!("Deleted page '{}'", params.uid))
     }
 
-    #[tool(description = "Move a block to a new parent.")]
+    #[tool(
+        description = "Move a block to a new parent block or page. The block keeps its content and children. Use get_page or get_block to find UIDs."
+    )]
     async fn move_block(
         &self,
         Parameters(params): Parameters<MoveBlockParams>,
@@ -337,6 +412,289 @@ impl RoamMcp {
 
         Ok(format!("Moved block '{}'", params.uid))
     }
+
+    #[tool(
+        description = "Get a daily note by date. Returns the full block tree for that day's note. If no date is provided, returns today's daily note. Useful for reviewing what was written on a specific day or adding content to today's journal."
+    )]
+    async fn get_daily_note(
+        &self,
+        Parameters(params): Parameters<GetDailyNoteParams>,
+    ) -> Result<String, String> {
+        let (month, day, year) = match &params.date {
+            Some(date_str) => {
+                let date = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+                    .map_err(|e| format!("Invalid date format (expected YYYY-MM-DD): {}", e))?;
+                (date.month(), date.day(), date.year())
+            }
+            None => {
+                let today = Local::now().date_naive();
+                (today.month(), today.day(), today.year())
+            }
+        };
+
+        let uid = queries::daily_note_uid_for_date(month, day, year);
+        let (eid, selector) = queries::pull_daily_note(&uid);
+        let resp = self
+            .client
+            .pull(eid, &selector)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        serde_json::to_string_pretty(&resp.result).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Search inside block content across the entire graph (full-text search). Returns matching blocks with their UID, text, and the page they belong to. Use this when you need to find specific text inside blocks, not just page titles."
+    )]
+    async fn search_blocks(
+        &self,
+        Parameters(params): Parameters<SearchBlocksParams>,
+    ) -> Result<String, String> {
+        let query_str = queries::search_blocks_query();
+        let resp = self
+            .client
+            .query(query_str, vec![])
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let query_lower = params.query.to_lowercase();
+        let limit = params.limit.unwrap_or(50);
+        let matches: Vec<serde_json::Value> = resp
+            .result
+            .iter()
+            .filter_map(|row| {
+                let uid = row.first()?.as_str()?;
+                let text = row.get(1)?.as_str()?;
+                let page_title = row.get(2)?.as_str()?;
+                if text.to_lowercase().contains(&query_lower) {
+                    Some(serde_json::json!({
+                        "uid": uid,
+                        "string": text,
+                        "page_title": page_title,
+                    }))
+                } else {
+                    None
+                }
+            })
+            .take(limit)
+            .collect();
+
+        serde_json::to_string_pretty(&matches).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Execute multiple write operations in a single API call (atomic batch). Accepts a JSON array of actions. Each action follows the same format as individual write tools. Supported actions: create-block, update-block, delete-block, move-block, create-page. Example: [{\"action\": \"create-page\", \"page\": {\"title\": \"New Page\"}}, {\"action\": \"create-block\", \"location\": {\"parent-uid\": \"page-uid\", \"order\": \"last\"}, \"block\": {\"string\": \"Content\"}}]"
+    )]
+    async fn batch_write(
+        &self,
+        Parameters(params): Parameters<BatchWriteParams>,
+    ) -> Result<String, String> {
+        let actions: Vec<WriteAction> = serde_json::from_str(&params.actions).map_err(|e| {
+            format!(
+                "Invalid actions JSON: {}. Expected an array of write action objects.",
+                e
+            )
+        })?;
+
+        let count = actions.len();
+        self.client
+            .write_batch(actions)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok(format!("Executed {} actions successfully", count))
+    }
+
+    #[tool(
+        description = "Export a page as formatted markdown. Converts the block tree into indented markdown with proper nesting. Useful for reading page content in a clean format or processing it externally."
+    )]
+    async fn export_page_as_markdown(
+        &self,
+        Parameters(params): Parameters<ExportPageAsMarkdownParams>,
+    ) -> Result<String, String> {
+        let (eid, selector) = queries::pull_page_by_title(&params.title);
+        let resp = self
+            .client
+            .pull(eid, &selector)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let title = resp
+            .result
+            .get(":node/title")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&params.title);
+
+        let mut output = format!("# {}\n\n", title);
+        if let Some(children) = resp
+            .result
+            .get(":block/children")
+            .and_then(|v| v.as_array())
+        {
+            let mut sorted = children.clone();
+            sorted.sort_by_key(|b| b.get(":block/order").and_then(|v| v.as_i64()).unwrap_or(0));
+            for child in &sorted {
+                render_block_as_markdown(child, 0, &mut output);
+            }
+        }
+
+        Ok(output)
+    }
+
+    #[tool(
+        description = "Get all outbound references from a block — pages and blocks that this block links to via [[page refs]] or ((block refs)). Returns a list of referenced entities with their UIDs and titles."
+    )]
+    async fn get_block_refs(
+        &self,
+        Parameters(params): Parameters<GetBlockRefsParams>,
+    ) -> Result<String, String> {
+        let eid = serde_json::json!(["block/uid", params.uid]);
+        let selector =
+            "[:block/uid :block/string {:block/refs [:block/uid :node/title :block/string]}]";
+        let resp = self
+            .client
+            .pull(eid, selector)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let refs = resp
+            .result
+            .get(":block/refs")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|r| {
+                        let uid = r.get(":block/uid")?.as_str()?;
+                        let title = r.get(":node/title").and_then(|v| v.as_str());
+                        let string = r.get(":block/string").and_then(|v| v.as_str());
+                        Some(serde_json::json!({
+                            "uid": uid,
+                            "title": title,
+                            "string": string,
+                        }))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        serde_json::to_string_pretty(&refs).map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Get graph statistics — total number of pages and blocks. Useful for understanding the size and scope of the Roam graph at a glance."
+    )]
+    async fn get_graph_stats(&self) -> Result<String, String> {
+        let page_query = queries::graph_page_count_query();
+        let block_query = queries::graph_block_count_query();
+
+        let (page_resp, block_resp) = tokio::try_join!(
+            self.client.query(page_query, vec![]),
+            self.client.query(block_query, vec![]),
+        )
+        .map_err(|e| e.to_string())?;
+
+        let page_count = page_resp
+            .result
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        let block_count = block_resp
+            .result
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        serde_json::to_string_pretty(&serde_json::json!({
+            "pages": page_count,
+            "blocks": block_count,
+        }))
+        .map_err(|e| e.to_string())
+    }
+
+    #[tool(
+        description = "Create a block with optional nested children in a single operation. More efficient than calling create_block multiple times. Each child is created in order under the new parent block."
+    )]
+    async fn create_block_with_children(
+        &self,
+        Parameters(params): Parameters<CreateBlockWithChildrenParams>,
+    ) -> Result<String, String> {
+        let block_uid = params
+            .uid
+            .unwrap_or_else(|| format!("mcp-{}", uuid_v4_short()));
+
+        let mut actions = vec![WriteAction::CreateBlock {
+            location: BlockLocation {
+                parent_uid: params.parent_uid,
+                order: parse_order(params.order),
+            },
+            block: NewBlock {
+                string: params.content,
+                uid: Some(block_uid.clone()),
+                open: None,
+            },
+        }];
+
+        if let Some(children_json) = &params.children {
+            let children: Vec<String> = serde_json::from_str(children_json)
+                .map_err(|e| format!("Invalid children JSON (expected array of strings): {}", e))?;
+            for (i, child_text) in children.iter().enumerate() {
+                actions.push(WriteAction::CreateBlock {
+                    location: BlockLocation {
+                        parent_uid: block_uid.clone(),
+                        order: OrderValue::Index(i as i64),
+                    },
+                    block: NewBlock {
+                        string: child_text.clone(),
+                        uid: None,
+                        open: None,
+                    },
+                });
+            }
+        }
+
+        if actions.len() == 1 {
+            self.client
+                .write(actions.into_iter().next().unwrap())
+                .await
+                .map_err(|e| e.to_string())?;
+        } else {
+            self.client
+                .write_batch(actions)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+
+        Ok(format!("Created block '{}' with children", block_uid))
+    }
+}
+
+fn render_block_as_markdown(block: &serde_json::Value, depth: usize, output: &mut String) {
+    let indent = "  ".repeat(depth);
+    let text = block
+        .get(":block/string")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    output.push_str(&format!("{}- {}\n", indent, text));
+
+    if let Some(children) = block.get(":block/children").and_then(|v| v.as_array()) {
+        let mut sorted = children.clone();
+        sorted.sort_by_key(|b| b.get(":block/order").and_then(|v| v.as_i64()).unwrap_or(0));
+        for child in &sorted {
+            render_block_as_markdown(child, depth + 1, output);
+        }
+    }
+}
+
+fn uuid_v4_short() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{:x}", nanos & 0xFFFF_FFFF_FFFF)
 }
 
 #[tool_handler]
@@ -434,6 +792,7 @@ mod tests {
         let result = mcp
             .search(Parameters(SearchParams {
                 query: "project".into(),
+                limit: None,
             }))
             .await;
 
@@ -457,6 +816,7 @@ mod tests {
         let result = mcp
             .search(Parameters(SearchParams {
                 query: "test".into(),
+                limit: None,
             }))
             .await;
 
@@ -754,6 +1114,473 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(result.unwrap().contains("block-uid"));
+    }
+
+    // -- search with limit --
+
+    #[tokio::test]
+    async fn search_with_limit_truncates_results() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/q"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": [
+                    ["Page A", "a-uid"],
+                    ["Page B", "b-uid"],
+                    ["Page C", "c-uid"],
+                    ["Page D", "d-uid"]
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .search(Parameters(SearchParams {
+                query: "page".into(),
+                limit: Some(2),
+            }))
+            .await;
+
+        let result = result.unwrap();
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed.len(), 2);
+    }
+
+    // -- get_daily_note tool --
+
+    #[tokio::test]
+    async fn get_daily_note_with_specific_date() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/pull"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": {
+                    ":node/title": "March 15, 2026",
+                    ":block/uid": "03-15-2026",
+                    ":block/children": [{
+                        ":block/uid": "b1",
+                        ":block/string": "Today's note",
+                        ":block/order": 0
+                    }]
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .get_daily_note(Parameters(GetDailyNoteParams {
+                date: Some("2026-03-15".into()),
+            }))
+            .await;
+
+        let result = result.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed[":node/title"], "March 15, 2026");
+    }
+
+    #[tokio::test]
+    async fn get_daily_note_today_calls_pull() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/pull"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": {
+                    ":node/title": "Today",
+                    ":block/uid": "today-uid"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .get_daily_note(Parameters(GetDailyNoteParams { date: None }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn get_daily_note_invalid_date_returns_error() {
+        let (_server, mcp) = setup().await;
+
+        let result = mcp
+            .get_daily_note(Parameters(GetDailyNoteParams {
+                date: Some("not-a-date".into()),
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid date format"));
+    }
+
+    // -- search_blocks tool --
+
+    #[tokio::test]
+    async fn search_blocks_filters_by_content() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/q"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": [
+                    ["b1", "Hello world", "Page A"],
+                    ["b2", "Goodbye world", "Page B"],
+                    ["b3", "No match here", "Page C"]
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .search_blocks(Parameters(SearchBlocksParams {
+                query: "world".into(),
+                limit: None,
+            }))
+            .await;
+
+        let result = result.unwrap();
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0]["uid"], "b1");
+        assert_eq!(parsed[0]["page_title"], "Page A");
+        assert_eq!(parsed[1]["uid"], "b2");
+    }
+
+    #[tokio::test]
+    async fn search_blocks_respects_limit() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/q"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": [
+                    ["b1", "match one", "P1"],
+                    ["b2", "match two", "P2"],
+                    ["b3", "match three", "P3"]
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .search_blocks(Parameters(SearchBlocksParams {
+                query: "match".into(),
+                limit: Some(2),
+            }))
+            .await;
+
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(parsed.len(), 2);
+    }
+
+    // -- batch_write tool --
+
+    #[tokio::test]
+    async fn batch_write_sends_batch_actions() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/write"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .mount(&server)
+            .await;
+
+        let actions = json!([
+            {"action": "create-page", "page": {"title": "Batch Page"}},
+            {"action": "create-block", "location": {"parent-uid": "p1", "order": "last"}, "block": {"string": "Block 1"}}
+        ]);
+
+        let result = mcp
+            .batch_write(Parameters(BatchWriteParams {
+                actions: actions.to_string(),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("2 actions"));
+    }
+
+    #[tokio::test]
+    async fn batch_write_invalid_json_returns_error() {
+        let (_server, mcp) = setup().await;
+
+        let result = mcp
+            .batch_write(Parameters(BatchWriteParams {
+                actions: "not json".into(),
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid actions JSON"));
+    }
+
+    // -- export_page_as_markdown tool --
+
+    #[tokio::test]
+    async fn export_page_as_markdown_formats_tree() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/pull"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": {
+                    ":node/title": "My Page",
+                    ":block/uid": "page-uid",
+                    ":block/children": [
+                        {
+                            ":block/uid": "b2",
+                            ":block/string": "Second block",
+                            ":block/order": 1
+                        },
+                        {
+                            ":block/uid": "b1",
+                            ":block/string": "First block",
+                            ":block/order": 0,
+                            ":block/children": [
+                                {
+                                    ":block/uid": "c1",
+                                    ":block/string": "Child block",
+                                    ":block/order": 0
+                                }
+                            ]
+                        }
+                    ]
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .export_page_as_markdown(Parameters(ExportPageAsMarkdownParams {
+                title: "My Page".into(),
+            }))
+            .await;
+
+        let md = result.unwrap();
+        assert!(md.starts_with("# My Page\n"));
+        assert!(md.contains("- First block\n"));
+        assert!(md.contains("  - Child block\n"));
+        assert!(md.contains("- Second block\n"));
+        // First block should come before Second block (order 0 < 1)
+        let first_pos = md.find("First block").unwrap();
+        let second_pos = md.find("Second block").unwrap();
+        assert!(first_pos < second_pos);
+    }
+
+    // -- get_block_refs tool --
+
+    #[tokio::test]
+    async fn get_block_refs_returns_references() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/pull"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": {
+                    ":block/uid": "b1",
+                    ":block/string": "Links to [[PageA]] and ((block-ref))",
+                    ":block/refs": [
+                        {":block/uid": "page-a-uid", ":node/title": "PageA"},
+                        {":block/uid": "block-ref", ":block/string": "Referenced block"}
+                    ]
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .get_block_refs(Parameters(GetBlockRefsParams { uid: "b1".into() }))
+            .await;
+
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0]["uid"], "page-a-uid");
+        assert_eq!(parsed[0]["title"], "PageA");
+        assert_eq!(parsed[1]["uid"], "block-ref");
+        assert_eq!(parsed[1]["string"], "Referenced block");
+    }
+
+    #[tokio::test]
+    async fn get_block_refs_empty_when_no_refs() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/pull"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": {
+                    ":block/uid": "b1",
+                    ":block/string": "No links here"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .get_block_refs(Parameters(GetBlockRefsParams { uid: "b1".into() }))
+            .await;
+
+        let parsed: Vec<serde_json::Value> = serde_json::from_str(&result.unwrap()).unwrap();
+        assert!(parsed.is_empty());
+    }
+
+    // -- get_graph_stats tool --
+
+    #[tokio::test]
+    async fn get_graph_stats_returns_counts() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/q"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "result": [[42]]
+            })))
+            .mount(&server)
+            .await;
+
+        let result = mcp.get_graph_stats().await;
+
+        let parsed: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        // Both queries hit the same mock, so both return 42
+        assert_eq!(parsed["pages"], 42);
+        assert_eq!(parsed["blocks"], 42);
+    }
+
+    // -- create_block_with_children tool --
+
+    #[tokio::test]
+    async fn create_block_with_children_sends_batch() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/write"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .create_block_with_children(Parameters(CreateBlockWithChildrenParams {
+                parent_uid: "parent-uid".into(),
+                content: "Parent block".into(),
+                order: Some("last".into()),
+                uid: Some("custom-uid".into()),
+                children: Some(r#"["Child 1", "Child 2"]"#.into()),
+            }))
+            .await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("custom-uid"));
+    }
+
+    #[tokio::test]
+    async fn create_block_with_children_no_children_single_write() {
+        let (server, mcp) = setup().await;
+
+        Mock::given(method("POST"))
+            .and(path("/write"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .mount(&server)
+            .await;
+
+        let result = mcp
+            .create_block_with_children(Parameters(CreateBlockWithChildrenParams {
+                parent_uid: "parent-uid".into(),
+                content: "Solo block".into(),
+                order: None,
+                uid: None,
+                children: None,
+            }))
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn create_block_with_children_invalid_json_returns_error() {
+        let (_server, mcp) = setup().await;
+
+        let result = mcp
+            .create_block_with_children(Parameters(CreateBlockWithChildrenParams {
+                parent_uid: "parent-uid".into(),
+                content: "Block".into(),
+                order: None,
+                uid: None,
+                children: Some("not json".into()),
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid children JSON"));
+    }
+
+    // -- render_block_as_markdown helper --
+
+    #[test]
+    fn render_block_as_markdown_nested() {
+        let block = json!({
+            ":block/string": "Parent",
+            ":block/order": 0,
+            ":block/children": [
+                {
+                    ":block/string": "Child B",
+                    ":block/order": 1
+                },
+                {
+                    ":block/string": "Child A",
+                    ":block/order": 0,
+                    ":block/children": [
+                        {
+                            ":block/string": "Grandchild",
+                            ":block/order": 0
+                        }
+                    ]
+                }
+            ]
+        });
+
+        let mut output = String::new();
+        render_block_as_markdown(&block, 0, &mut output);
+        assert_eq!(
+            output,
+            "- Parent\n  - Child A\n    - Grandchild\n  - Child B\n"
+        );
+    }
+
+    // -- WriteAction batch serialization --
+
+    #[test]
+    fn batch_actions_serializes_correctly() {
+        let batch = WriteAction::BatchActions {
+            actions: vec![
+                WriteAction::CreatePage {
+                    page: PageCreate {
+                        title: "Test".into(),
+                        uid: None,
+                    },
+                },
+                WriteAction::UpdateBlock {
+                    block: BlockUpdate {
+                        uid: "b1".into(),
+                        string: "Updated".into(),
+                    },
+                },
+            ],
+        };
+        let json = serde_json::to_value(&batch).unwrap();
+        assert_eq!(json["action"], "batch-actions");
+        assert_eq!(json["actions"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn batch_actions_deserializes() {
+        let json = json!([
+            {"action": "create-page", "page": {"title": "New"}},
+            {"action": "delete-block", "block": {"uid": "x"}}
+        ]);
+        let actions: Vec<WriteAction> = serde_json::from_value(json).unwrap();
+        assert_eq!(actions.len(), 2);
     }
 
     // -- error handling --
