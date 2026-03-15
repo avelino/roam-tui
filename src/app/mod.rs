@@ -32,11 +32,99 @@ use ratatui::DefaultTerminal;
 use tokio::sync::mpsc;
 
 use crate::api::client::RoamClient;
-use crate::api::types::{Block, DailyNote};
+use crate::api::types::{
+    Block, BlockLocation, BlockRef as ApiBlockRef, DailyNote, OrderValue, WriteAction,
+};
 use crate::config::AppConfig;
 use crate::error::{ErrorInfo, ErrorPopup, Result};
 use crate::keys::preset::Action;
 use crate::keys::KeybindingMap;
+
+use state::UndoEntry;
+
+fn handle_batch_indent(state: &mut AppState) -> Option<WriteAction> {
+    let (lo, hi) = state.selection.indices();
+    state.redo_stack.clear();
+    let mut undo_entries = Vec::new();
+    let mut write_actions = Vec::new();
+
+    for idx in lo..=hi {
+        if let Some(info) = blocks::resolve_block_at_index(&state.days, &state.linked_refs, idx) {
+            let saved_selected = state.selected_block;
+            if let Some((new_parent, new_order)) =
+                blocks::indent_block_in_days(&mut state.days, &info.block_uid)
+            {
+                undo_entries.push(UndoEntry::MoveBlock {
+                    block_uid: info.block_uid.clone(),
+                    old_parent_uid: info.parent_uid,
+                    old_order: info.order,
+                    selected_block: saved_selected,
+                });
+                write_actions.push(WriteAction::MoveBlock {
+                    block: ApiBlockRef {
+                        uid: info.block_uid,
+                    },
+                    location: BlockLocation {
+                        parent_uid: new_parent,
+                        order: OrderValue::Index(new_order),
+                    },
+                });
+            }
+        }
+    }
+
+    if write_actions.is_empty() {
+        return None;
+    }
+
+    state.undo_stack.push(UndoEntry::Batch(undo_entries));
+    Some(WriteAction::BatchActions {
+        actions: write_actions,
+    })
+}
+
+fn handle_batch_dedent(state: &mut AppState) -> Option<WriteAction> {
+    let (lo, hi) = state.selection.indices();
+    state.redo_stack.clear();
+    let mut undo_entries = Vec::new();
+    let mut write_actions = Vec::new();
+
+    // Dedent in reverse to keep indices more stable
+    for idx in (lo..=hi).rev() {
+        if let Some(info) = blocks::resolve_block_at_index(&state.days, &state.linked_refs, idx) {
+            let saved_selected = state.selected_block;
+            if let Some((new_parent, new_order)) =
+                blocks::dedent_block_in_days(&mut state.days, &info.block_uid)
+            {
+                undo_entries.push(UndoEntry::MoveBlock {
+                    block_uid: info.block_uid.clone(),
+                    old_parent_uid: info.parent_uid,
+                    old_order: info.order,
+                    selected_block: saved_selected,
+                });
+                write_actions.push(WriteAction::MoveBlock {
+                    block: ApiBlockRef {
+                        uid: info.block_uid,
+                    },
+                    location: BlockLocation {
+                        parent_uid: new_parent,
+                        order: OrderValue::Index(new_order),
+                    },
+                });
+            }
+        }
+    }
+
+    if write_actions.is_empty() {
+        return None;
+    }
+
+    undo_entries.reverse();
+    state.undo_stack.push(UndoEntry::Batch(undo_entries));
+    Some(WriteAction::BatchActions {
+        actions: write_actions,
+    })
+}
 
 fn dispatch_load_request(
     request: LoadRequest,
@@ -85,6 +173,14 @@ fn handle_normal_key(
             if let Some(write_action) = apply_redo(state) {
                 spawn_write(client, write_action, tx);
             }
+        } else if action == &Action::Indent && state.selection.is_multi() {
+            if let Some(write_action) = handle_batch_indent(state) {
+                spawn_write(client, write_action, tx);
+            }
+        } else if action == &Action::Unindent && state.selection.is_multi() {
+            if let Some(write_action) = handle_batch_dedent(state) {
+                spawn_write(client, write_action, tx);
+            }
         } else if let Some(req) = handle_action(state, action) {
             dispatch_load_request(req, client, tx);
         }
@@ -98,8 +194,10 @@ pub fn handle_daily_note_loaded(state: &mut AppState, mut note: DailyNote) {
     }
     // Ensure every day has at least one block so navigation always works
     if note.blocks.is_empty() {
+        let placeholder_uid = generate_uid();
+        state.placeholder_uids.insert(placeholder_uid.clone());
         note.blocks.push(Block {
-            uid: generate_uid(),
+            uid: placeholder_uid,
             string: String::new(),
             order: 0,
             children: vec![],
@@ -130,8 +228,10 @@ pub fn handle_refresh_loaded(state: &mut AppState, note: DailyNote) {
 pub fn handle_page_loaded(state: &mut AppState, mut note: DailyNote) {
     // Ensure the page has at least one block
     if note.blocks.is_empty() {
+        let placeholder_uid = generate_uid();
+        state.placeholder_uids.insert(placeholder_uid.clone());
         note.blocks.push(Block {
-            uid: generate_uid(),
+            uid: placeholder_uid,
             string: String::new(),
             order: 0,
             children: vec![],
@@ -3473,5 +3573,194 @@ mod tests {
         assert!(req.is_none());
         // Popup closed after take()
         assert!(state.quick_switcher.is_none());
+    }
+
+    // --- Placeholder block tests (issue: update-block on non-existent UID) ---
+
+    #[test]
+    fn daily_note_loaded_empty_registers_placeholder_uid() {
+        let mut state = AppState::new("test-graph", vec![], vec![]);
+        state.loading = false;
+        let empty_note = make_empty_note(2026, 3, 20);
+        handle_daily_note_loaded(&mut state, empty_note);
+
+        // Should have created a placeholder
+        assert_eq!(state.days.len(), 1);
+        assert_eq!(state.days[0].blocks.len(), 1);
+        let placeholder_uid = &state.days[0].blocks[0].uid;
+        assert!(
+            state.placeholder_uids.contains(placeholder_uid),
+            "Placeholder UID should be tracked"
+        );
+    }
+
+    #[test]
+    fn page_loaded_empty_registers_placeholder_uid() {
+        let mut state = test_state();
+        let empty_page = DailyNote {
+            date: NaiveDate::from_ymd_opt(2000, 1, 1).unwrap(),
+            uid: "page-uid".into(),
+            title: "Empty Page".into(),
+            blocks: vec![],
+        };
+        handle_page_loaded(&mut state, empty_page);
+
+        let placeholder_uid = &state.days[0].blocks[0].uid;
+        assert!(
+            state.placeholder_uids.contains(placeholder_uid),
+            "Page placeholder UID should be tracked"
+        );
+    }
+
+    #[test]
+    fn daily_note_with_blocks_has_no_placeholder() {
+        let mut state = test_state();
+        let note = make_daily_note(2026, 3, 20, vec![make_block("real-uid", "Real block", 0)]);
+        handle_daily_note_loaded(&mut state, note);
+        assert!(
+            state.placeholder_uids.is_empty(),
+            "No placeholder should be registered for notes with blocks"
+        );
+    }
+
+    #[test]
+    fn editing_placeholder_sends_create_not_update() {
+        use crate::api::types::WriteAction;
+
+        let mut state = AppState::new("test-graph", vec![], vec![]);
+        state.loading = false;
+        state.status_message = None;
+
+        // Simulate loading an empty daily note (creates placeholder)
+        let empty_note = make_empty_note(2026, 3, 20);
+        handle_daily_note_loaded(&mut state, empty_note);
+
+        let placeholder_uid = state.days.last().unwrap().blocks[0].uid.clone();
+        assert!(state.placeholder_uids.contains(&placeholder_uid));
+
+        // Select the placeholder and enter edit mode
+        state.selected_block = state.flat_block_count() - 1;
+        enter_insert_mode(&mut state);
+
+        // Type some text
+        handle_insert_key(
+            &mut state,
+            &KeyEvent::new(KeyCode::Char('H'), KeyModifiers::SHIFT),
+        );
+        handle_insert_key(
+            &mut state,
+            &KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+
+        // Exit insert mode (Esc) — should send create-block, NOT update-block
+        let write_action =
+            handle_insert_key(&mut state, &KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        match write_action {
+            Some(WriteAction::CreateBlock { block, .. }) => {
+                assert_eq!(block.uid, Some(placeholder_uid.clone()));
+                assert_eq!(block.string, "Hi");
+            }
+            Some(WriteAction::UpdateBlock { .. }) => {
+                panic!("BUG: Editing a placeholder must send CreateBlock, not UpdateBlock");
+            }
+            other => {
+                panic!("Expected CreateBlock, got: {:?}", other);
+            }
+        }
+
+        // Placeholder should be removed from tracking
+        assert!(
+            !state.placeholder_uids.contains(&placeholder_uid),
+            "Placeholder UID should be removed after create"
+        );
+    }
+
+    #[test]
+    fn editing_placeholder_empty_text_sends_nothing() {
+        let mut state = AppState::new("test-graph", vec![], vec![]);
+        state.loading = false;
+        state.status_message = None;
+
+        let empty_note = make_empty_note(2026, 3, 20);
+        handle_daily_note_loaded(&mut state, empty_note);
+
+        state.selected_block = state.flat_block_count() - 1;
+        enter_insert_mode(&mut state);
+
+        // Exit without typing anything
+        let write_action =
+            handle_insert_key(&mut state, &KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(
+            write_action.is_none(),
+            "Empty placeholder edit should not send any API call"
+        );
+    }
+
+    #[test]
+    fn editing_real_block_sends_update() {
+        use crate::api::types::WriteAction;
+
+        let mut state = test_state();
+        assert!(state.placeholder_uids.is_empty());
+
+        // Edit a real block (b1)
+        state.selected_block = 0;
+        enter_insert_mode(&mut state);
+
+        // Add a char
+        handle_insert_key(
+            &mut state,
+            &KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE),
+        );
+
+        let write_action =
+            handle_insert_key(&mut state, &KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        match write_action {
+            Some(WriteAction::UpdateBlock { block }) => {
+                assert_eq!(block.uid, "b1");
+            }
+            Some(WriteAction::CreateBlock { .. }) => {
+                panic!("BUG: Editing a real block must send UpdateBlock, not CreateBlock");
+            }
+            other => {
+                panic!("Expected UpdateBlock, got: {:?}", other);
+            }
+        }
+    }
+
+    #[test]
+    fn creating_block_via_action_is_not_placeholder() {
+        use crate::api::types::WriteAction;
+
+        let mut state = test_state();
+
+        // Create a new block via Action::CreateBlock (o key in vim)
+        handle_action(&mut state, &Action::CreateBlock);
+
+        // Should be in insert mode with create_info, not placeholder
+        match &state.input_mode {
+            InputMode::Insert { create_info, .. } => {
+                assert!(create_info.is_some(), "Should have create_info");
+            }
+            _ => panic!("Should be in Insert mode"),
+        }
+
+        // Type text
+        handle_insert_key(
+            &mut state,
+            &KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+        );
+
+        // Finalize — should send CreateBlock (via create_info path)
+        let write_action =
+            handle_insert_key(&mut state, &KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(matches!(
+            write_action,
+            Some(WriteAction::CreateBlock { .. })
+        ));
     }
 }

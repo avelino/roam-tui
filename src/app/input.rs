@@ -13,7 +13,9 @@ use super::search::{
     filter_blocks, filter_page_titles, has_exact_match, AUTOCOMPLETE_LIMIT, QUICK_SWITCHER_LIMIT,
     SEARCH_LIMIT,
 };
-use super::state::{AppState, AutocompleteState, CreateInfo, InputMode, LoadRequest, UndoEntry};
+use super::state::{
+    AppState, AutocompleteState, CreateInfo, InputMode, LoadRequest, Selection, UndoEntry,
+};
 
 // --- Link picker key handling ---
 
@@ -420,13 +422,42 @@ pub(super) fn finalize_insert(state: &mut AppState) -> Option<WriteAction> {
         };
 
     let new_text = buffer.to_string();
+    // Check if this is a placeholder block (created locally, not on server)
+    let is_placeholder = state.placeholder_uids.contains(&block_uid);
     if let Some(info) = create_info {
         if !new_text.is_empty() {
             state.undo_stack.push(UndoEntry::CreateBlock {
                 block_uid: block_uid.clone(),
             });
         }
+        state.placeholder_uids.remove(&block_uid);
         finalize_create(state, info, block_uid, new_text)
+    } else if is_placeholder {
+        // Placeholder block edited — treat as create, not update
+        state.placeholder_uids.remove(&block_uid);
+        if new_text.is_empty() {
+            return None; // No change, leave placeholder as is
+        }
+        let info = resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block);
+        if let Some(info) = info {
+            state.undo_stack.push(UndoEntry::CreateBlock {
+                block_uid: block_uid.clone(),
+            });
+            update_block_text_in_days(&mut state.days, &block_uid, &new_text);
+            Some(WriteAction::CreateBlock {
+                location: BlockLocation {
+                    parent_uid: info.parent_uid,
+                    order: OrderValue::Index(info.order),
+                },
+                block: NewBlock {
+                    string: new_text,
+                    uid: Some(block_uid),
+                    open: None,
+                },
+            })
+        } else {
+            None
+        }
     } else {
         if new_text != original_text {
             state.undo_stack.push(UndoEntry::TextEdit {
@@ -605,6 +636,52 @@ pub fn handle_delete_block(state: &mut AppState) -> Option<WriteAction> {
         return None;
     }
     state.redo_stack.clear();
+
+    // Multi-block delete
+    if state.selection.is_multi() {
+        let (lo, hi) = state.selection.indices();
+        let mut undo_entries = Vec::new();
+        let mut write_actions = Vec::new();
+
+        // Collect all block infos first (indices shift as we delete)
+        let mut block_infos: Vec<_> = (lo..=hi)
+            .filter_map(|idx| {
+                resolve_block_at_index(&state.days, &state.linked_refs, idx).and_then(|info| {
+                    find_block_in_days(&state.days, &info.block_uid).map(|block| (info, block))
+                })
+            })
+            .collect();
+
+        // Delete in reverse order to keep indices stable
+        block_infos.reverse();
+        for (info, block) in block_infos {
+            undo_entries.push(UndoEntry::DeleteBlock {
+                block,
+                parent_uid: info.parent_uid.clone(),
+                order: info.order,
+                selected_block: lo,
+            });
+            write_actions.push(WriteAction::DeleteBlock {
+                block: BlockRef {
+                    uid: info.block_uid.clone(),
+                },
+            });
+            remove_block_from_days(&mut state.days, &info.block_uid);
+        }
+
+        undo_entries.reverse();
+        state.undo_stack.push(UndoEntry::Batch(undo_entries));
+
+        let total = state.flat_block_count();
+        state.selected_block = if total == 0 { 0 } else { lo.min(total - 1) };
+        state.selection = Selection::Single(state.selected_block);
+
+        return Some(WriteAction::BatchActions {
+            actions: write_actions,
+        });
+    }
+
+    // Single block delete
     let info = resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)?;
     let block = find_block_in_days(&state.days, &info.block_uid)?;
     let saved_selected = state.selected_block;
@@ -624,6 +701,7 @@ pub fn handle_delete_block(state: &mut AppState) -> Option<WriteAction> {
     } else if state.selected_block >= total {
         state.selected_block = total - 1;
     }
+    state.selection = Selection::Single(state.selected_block);
 
     Some(WriteAction::DeleteBlock {
         block: BlockRef {
