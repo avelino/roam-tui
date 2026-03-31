@@ -9,7 +9,8 @@ pub fn pull_daily_note(uid: &str) -> (serde_json::Value, String) {
 }
 
 pub fn pull_page_by_title(title: &str) -> (serde_json::Value, String) {
-    let eid = serde_json::Value::String(format!("[:node/title \"{}\"]", title));
+    let escaped = title.replace('"', r#"\""#);
+    let eid = serde_json::Value::String(format!("[:node/title \"{}\"]", escaped));
     let selector = page_selector();
     (eid, selector)
 }
@@ -30,8 +31,13 @@ pub fn search_blocks_query() -> String {
     "[:find ?uid ?s ?page-title :where [?b :block/string ?s] [?b :block/uid ?uid] [?b :block/page ?p] [?p :node/title ?page-title]]".to_string()
 }
 
-pub fn all_blocks_fingerprint_query() -> String {
-    "[:find ?page-uid ?block-uid ?block-string :where [?p :block/uid ?page-uid] [?p :node/title _] [?b :block/page ?p] [?b :block/uid ?block-uid] [?b :block/string ?block-string]]".to_string()
+/// Pages with blocks edited after `since_ms` (epoch millis).
+/// Returns (page-title, page-uid) — deduplicated by Datalog :find.
+pub fn pages_modified_since_query(since_ms: i64) -> String {
+    format!(
+        "[:find ?title ?page-uid :where [?b :edit/time ?t] [(> ?t {})] [?b :block/page ?p] [?p :node/title ?title] [?p :block/uid ?page-uid]]",
+        since_ms
+    )
 }
 
 pub fn graph_page_count_query() -> String {

@@ -6,7 +6,7 @@ use super::{SyncConfig, SyncReport};
 
 pub async fn push_sync(
     _client: &RoamClient,
-    _store: &SyncStore,
+    _store: &mut SyncStore,
     _config: &SyncConfig,
 ) -> Result<SyncReport> {
     Err(RoamError::Generic(

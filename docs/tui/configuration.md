@@ -20,6 +20,10 @@ preset = "vim"
 [keybindings.bindings]
 quit = "Ctrl+q"
 search = "Ctrl+f"
+
+[sync]
+dir = "~/.config/roam-tui/sync"
+db_dir = "~/.config/roam-tui/.chrondb"
 ```
 
 ## Options
@@ -58,6 +62,15 @@ move_up = "Ctrl+k"
 
 See [Keybindings](keybindings.md) for all available actions and key format.
 
+### `[sync]` — optional
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `dir` | string | `~/.config/roam-tui/sync` | Directory for synced markdown files |
+| `db_dir` | string | `~/.config/roam-tui/.chrondb` | ChronDB storage directory |
+
+See [Sync](../cli/sync.md) for usage details.
+
 ## Environment variables
 
 Every config option can be set via environment variables with the `ROAM_` prefix. Use `__` (double underscore) for nesting.
@@ -70,6 +83,8 @@ Every config option can be set via environment variables with the `ROAM_` prefix
 | `ROAM_UI_SIDEBAR__DEFAULT` | `ui.sidebar_default` |
 | `ROAM_UI_SIDEBAR__WIDTH__PERCENT` | `ui.sidebar_width_percent` |
 | `ROAM_KEYBINDINGS_PRESET` | `keybindings.preset` |
+| `ROAM_SYNC_DIR` | `sync.dir` |
+| `ROAM_SYNC_DB__DIR` | `sync.db_dir` |
 
 Environment variables override file values. This is useful for keeping tokens out of config files:
 

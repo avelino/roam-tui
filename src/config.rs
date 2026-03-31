@@ -14,6 +14,8 @@ pub struct AppConfig {
     pub ui: UiConfig,
     #[serde(default)]
     pub keybindings: KeybindingsConfig,
+    #[serde(default)]
+    pub sync: SyncFilesConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -70,6 +72,42 @@ fn default_sidebar() -> bool {
 
 fn default_sidebar_width() -> u8 {
     35
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SyncFilesConfig {
+    #[serde(default = "default_sync_dir")]
+    pub dir: String,
+    #[serde(default = "default_db_dir")]
+    pub db_dir: String,
+    #[serde(default)]
+    pub remote: String,
+}
+
+impl Default for SyncFilesConfig {
+    fn default() -> Self {
+        Self {
+            dir: default_sync_dir(),
+            db_dir: default_db_dir(),
+            remote: String::new(),
+        }
+    }
+}
+
+fn default_sync_dir() -> String {
+    AppConfig::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("sync")
+        .to_string_lossy()
+        .to_string()
+}
+
+fn default_db_dir() -> String {
+    AppConfig::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".chrondb")
+        .to_string_lossy()
+        .to_string()
 }
 
 fn default_preset() -> String {
@@ -146,6 +184,7 @@ preset = "vim"  # vim | emacs | vscode
             },
             ui: UiConfig::default(),
             keybindings: KeybindingsConfig::default(),
+            sync: SyncFilesConfig::default(),
         }
     }
 }

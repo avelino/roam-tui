@@ -1,221 +1,202 @@
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::error::{Result, RoamError};
 
-pub struct SyncStore {
-    #[cfg(feature = "sync")]
-    db: chrondb::ChronDB,
+/// Page data to write to ChronDB in batch.
+#[derive(Clone)]
+pub struct PageEntry {
+    pub uid: String,
+    pub title: String,
+    pub file_path: String,
+    pub block_count: usize,
 }
 
-#[allow(dead_code)]
+pub struct SyncStore {
+    db_dir: PathBuf,
+    /// Cached page UIDs loaded once at startup.
+    known_pages: HashSet<String>,
+    /// Last sync timestamp (epoch millis), loaded from ChronDB.
+    last_sync_ms: i64,
+    /// Timestamp to save on next flush (set before sync starts).
+    next_sync_ms: i64,
+    /// Pending writes — flushed to ChronDB in one batch at the end.
+    pending: Vec<PageEntry>,
+}
+
 impl SyncStore {
     pub fn open(db_dir: &Path) -> Result<Self> {
-        #[cfg(feature = "sync")]
-        {
-            let data_path = db_dir.join("data");
-            let index_path = db_dir.join("index");
+        let db_dir = db_dir.to_path_buf();
+        let (known_pages, last_sync_ms) = Self::load_state(&db_dir);
 
-            std::fs::create_dir_all(&data_path).map_err(|e| {
-                RoamError::Generic(format!("Failed to create ChronDB data dir: {}", e))
-            })?;
-            std::fs::create_dir_all(&index_path).map_err(|e| {
-                RoamError::Generic(format!("Failed to create ChronDB index dir: {}", e))
-            })?;
-
-            let db = chrondb::ChronDB::open(
-                data_path.to_str().unwrap_or(""),
-                index_path.to_str().unwrap_or(""),
-            )
-            .map_err(|e| RoamError::Generic(format!("Failed to open ChronDB: {}", e)))?;
-
-            Ok(Self { db })
-        }
-
-        #[cfg(not(feature = "sync"))]
-        {
-            let _ = db_dir;
-            Err(RoamError::Generic(
-                "Sync feature is not enabled. Rebuild with --features sync".to_string(),
-            ))
-        }
+        Ok(Self {
+            db_dir,
+            known_pages,
+            last_sync_ms,
+            next_sync_ms: 0,
+            pending: Vec::new(),
+        })
     }
 
-    pub fn get_block(&self, uid: &str) -> Result<Option<Value>> {
-        #[cfg(feature = "sync")]
-        {
-            let key = format!("block:{}", uid);
-            match self.db.get(&key, None) {
-                Ok(val) => Ok(Some(val)),
-                Err(e) => {
-                    let msg = format!("{}", e);
-                    if msg.contains("NotFound") || msg.contains("not found") {
-                        Ok(None)
-                    } else {
-                        Err(RoamError::Generic(format!("ChronDB get error: {}", e)))
+    fn data_path(&self) -> PathBuf {
+        self.db_dir.join("data")
+    }
+
+    fn index_path(&self) -> PathBuf {
+        self.db_dir.join("index")
+    }
+
+    fn load_state(db_dir: &Path) -> (HashSet<String>, i64) {
+        let data_path = db_dir.join("data");
+        let index_path = db_dir.join("index");
+
+        if !data_path.exists() {
+            return (HashSet::new(), 0);
+        }
+
+        let db = match chrondb::ChronDB::open(
+            data_path.to_str().unwrap_or(""),
+            index_path.to_str().unwrap_or(""),
+        ) {
+            Ok(db) => db,
+            Err(_) => {
+                // Index might be corrupted (e.g. from Ctrl+C). Reset and retry.
+                eprintln!("ChronDB: index corrupted, rebuilding...");
+                let _ = std::fs::remove_dir_all(&index_path);
+                let _ = std::fs::create_dir_all(&index_path);
+                match chrondb::ChronDB::open(
+                    data_path.to_str().unwrap_or(""),
+                    index_path.to_str().unwrap_or(""),
+                ) {
+                    Ok(db) => db,
+                    Err(_) => return (HashSet::new(), 0),
+                }
+            }
+        };
+
+        let mut pages = HashSet::new();
+        if let Ok(list) = db.list_by_prefix("page:", None) {
+            if let Some(arr) = list.as_array() {
+                for item in arr {
+                    if let Some(key) = item.get("id").and_then(|v| v.as_str()) {
+                        if let Some(uid) = key.strip_prefix("page:") {
+                            pages.insert(uid.to_string());
+                        }
+                    }
+                }
+            } else if let Some(obj) = list.as_object() {
+                for key in obj.keys() {
+                    if let Some(uid) = key.strip_prefix("page:") {
+                        pages.insert(uid.to_string());
                     }
                 }
             }
         }
-        #[cfg(not(feature = "sync"))]
-        {
-            let _ = uid;
-            Err(RoamError::Generic("Sync feature not enabled".to_string()))
-        }
+
+        // Load last sync timestamp
+        let last_sync_ms = db
+            .get("meta:last_sync_ms", None)
+            .ok()
+            .and_then(|v| v.get("ts")?.as_i64())
+            .unwrap_or(0);
+
+        (pages, last_sync_ms)
     }
 
-    pub fn put_block(&self, uid: &str, doc: &Value) -> Result<()> {
-        #[cfg(feature = "sync")]
-        {
-            let key = format!("block:{}", uid);
-            self.db
-                .put(&key, doc, None)
-                .map_err(|e| RoamError::Generic(format!("ChronDB put error: {}", e)))?;
-            Ok(())
-        }
-        #[cfg(not(feature = "sync"))]
-        {
-            let _ = (uid, doc);
-            Err(RoamError::Generic("Sync feature not enabled".to_string()))
-        }
+    fn open_db(&self) -> Result<chrondb::ChronDB> {
+        let data_path = self.data_path();
+        let index_path = self.index_path();
+
+        std::fs::create_dir_all(&data_path)
+            .map_err(|e| RoamError::Generic(format!("Failed to create ChronDB data dir: {}", e)))?;
+        std::fs::create_dir_all(&index_path).map_err(|e| {
+            RoamError::Generic(format!("Failed to create ChronDB index dir: {}", e))
+        })?;
+
+        chrondb::ChronDB::open(
+            data_path.to_str().unwrap_or(""),
+            index_path.to_str().unwrap_or(""),
+        )
+        .map_err(|e| RoamError::Generic(format!("Failed to open ChronDB: {}", e)))
     }
 
-    pub fn delete_block(&self, uid: &str) -> Result<()> {
-        #[cfg(feature = "sync")]
-        {
-            let key = format!("block:{}", uid);
-            let _ = self.db.delete(&key, None);
-            Ok(())
-        }
-        #[cfg(not(feature = "sync"))]
-        {
-            let _ = uid;
-            Err(RoamError::Generic("Sync feature not enabled".to_string()))
-        }
+    /// Fast in-memory check — no ChronDB round-trip.
+    pub fn has_page(&self, uid: &str) -> bool {
+        self.known_pages.contains(uid)
     }
 
-    pub fn get_page(&self, uid: &str) -> Result<Option<Value>> {
-        #[cfg(feature = "sync")]
-        {
-            let key = format!("page:{}", uid);
-            match self.db.get(&key, None) {
-                Ok(val) => Ok(Some(val)),
-                Err(e) => {
-                    let msg = format!("{}", e);
-                    if msg.contains("NotFound") || msg.contains("not found") {
-                        Ok(None)
-                    } else {
-                        Err(RoamError::Generic(format!("ChronDB get error: {}", e)))
-                    }
+    /// Queue a page for batch write. Updates in-memory cache immediately.
+    pub fn put_page(&mut self, uid: &str, title: &str, file_path: &str, block_count: usize) {
+        self.known_pages.insert(uid.to_string());
+        self.pending.push(PageEntry {
+            uid: uid.to_string(),
+            title: title.to_string(),
+            file_path: file_path.to_string(),
+            block_count,
+        });
+    }
+
+    /// Flush pending pages to ChronDB + always save sync timestamp.
+    pub fn flush(&mut self) -> Result<()> {
+        let db = self.open_db()?;
+
+        if !self.pending.is_empty() {
+            eprintln!("Writing {} pages to ChronDB...", self.pending.len());
+            for entry in &self.pending {
+                let key = format!("page:{}", entry.uid);
+                let doc = json!({
+                    "title": entry.title,
+                    "uid": entry.uid,
+                    "file_path": entry.file_path,
+                    "block_count": entry.block_count,
+                });
+                if let Err(e) = db.put(&key, &doc, None) {
+                    eprintln!("ChronDB: failed to write page {}: {}", entry.uid, e);
+                    break;
                 }
             }
         }
-        #[cfg(not(feature = "sync"))]
-        {
-            let _ = uid;
-            Err(RoamError::Generic("Sync feature not enabled".to_string()))
+
+        // Save sync timestamp (must be JSON object, not scalar)
+        if self.next_sync_ms > 0 {
+            let _ = db.put("meta:last_sync_ms", &json!({"ts": self.next_sync_ms}), None);
+            self.last_sync_ms = self.next_sync_ms;
         }
+
+        drop(db);
+
+        let count = self.pending.len();
+        self.pending.clear();
+        if count > 0 {
+            eprintln!("ChronDB: {} pages written", count);
+        }
+
+        Ok(())
     }
 
-    pub fn put_page(&self, uid: &str, doc: &Value) -> Result<()> {
-        #[cfg(feature = "sync")]
-        {
-            let key = format!("page:{}", uid);
-            self.db
-                .put(&key, doc, None)
-                .map_err(|e| RoamError::Generic(format!("ChronDB put error: {}", e)))?;
-            Ok(())
-        }
-        #[cfg(not(feature = "sync"))]
-        {
-            let _ = (uid, doc);
-            Err(RoamError::Generic("Sync feature not enabled".to_string()))
-        }
+    /// Get version history for a page.
+    #[allow(dead_code)]
+    pub fn page_history(&self, uid: &str) -> Result<Value> {
+        let db = self.open_db()?;
+        let key = format!("page:{}", uid);
+        db.history(&key, None)
+            .map_err(|e| RoamError::Generic(format!("ChronDB history error: {}", e)))
     }
 
-    pub fn delete_page(&self, uid: &str) -> Result<()> {
-        #[cfg(feature = "sync")]
-        {
-            let key = format!("page:{}", uid);
-            let _ = self.db.delete(&key, None);
-            Ok(())
-        }
-        #[cfg(not(feature = "sync"))]
-        {
-            let _ = uid;
-            Err(RoamError::Generic("Sync feature not enabled".to_string()))
-        }
+    pub fn known_page_count(&self) -> usize {
+        self.known_pages.len()
     }
 
-    pub fn get_manifest(&self) -> Result<Option<Value>> {
-        #[cfg(feature = "sync")]
-        {
-            match self.db.get("meta:manifest", None) {
-                Ok(val) => Ok(Some(val)),
-                Err(e) => {
-                    let msg = format!("{}", e);
-                    if msg.contains("NotFound") || msg.contains("not found") {
-                        Ok(None)
-                    } else {
-                        Err(RoamError::Generic(format!("ChronDB get error: {}", e)))
-                    }
-                }
-            }
-        }
-        #[cfg(not(feature = "sync"))]
-        Err(RoamError::Generic("Sync feature not enabled".to_string()))
+    pub fn last_sync_ms(&self) -> i64 {
+        self.last_sync_ms
     }
 
-    pub fn put_manifest(&self, doc: &Value) -> Result<()> {
-        #[cfg(feature = "sync")]
-        {
-            self.db
-                .put("meta:manifest", doc, None)
-                .map_err(|e| RoamError::Generic(format!("ChronDB put error: {}", e)))?;
-            Ok(())
-        }
-        #[cfg(not(feature = "sync"))]
-        {
-            let _ = doc;
-            Err(RoamError::Generic("Sync feature not enabled".to_string()))
-        }
+    /// Set the timestamp to save on next flush (call before sync starts).
+    pub fn set_next_sync_ms(&mut self, ms: i64) {
+        self.next_sync_ms = ms;
     }
 
-    pub fn history(&self, block_uid: &str) -> Result<Value> {
-        #[cfg(feature = "sync")]
-        {
-            let key = format!("block:{}", block_uid);
-            self.db
-                .history(&key, None)
-                .map_err(|e| RoamError::Generic(format!("ChronDB history error: {}", e)))
-        }
-        #[cfg(not(feature = "sync"))]
-        {
-            let _ = block_uid;
-            Err(RoamError::Generic("Sync feature not enabled".to_string()))
-        }
-    }
-
-    pub fn list_blocks(&self) -> Result<Value> {
-        #[cfg(feature = "sync")]
-        {
-            self.db
-                .list_by_prefix("block:", None)
-                .map_err(|e| RoamError::Generic(format!("ChronDB list error: {}", e)))
-        }
-        #[cfg(not(feature = "sync"))]
-        Err(RoamError::Generic("Sync feature not enabled".to_string()))
-    }
-
-    pub fn list_pages(&self) -> Result<Value> {
-        #[cfg(feature = "sync")]
-        {
-            self.db
-                .list_by_prefix("page:", None)
-                .map_err(|e| RoamError::Generic(format!("ChronDB list error: {}", e)))
-        }
-        #[cfg(not(feature = "sync"))]
-        Err(RoamError::Generic("Sync feature not enabled".to_string()))
-    }
+    // --- Git remote operations on ChronDB's data dir ---
 }

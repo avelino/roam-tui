@@ -6,6 +6,7 @@
 ## CLI
 
 - [Commands Reference](cli/README.md)
+- [Sync](cli/sync.md)
 
 ## TUI
 

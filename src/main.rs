@@ -448,23 +448,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 filter,
                 history,
             } => {
+                let output_dir = if dir == "roam-sync" {
+                    // Use config default when CLI arg is the clap default
+                    std::path::PathBuf::from(&config.sync.dir)
+                } else {
+                    std::path::PathBuf::from(&dir)
+                };
+
                 let sync_config = sync::SyncConfig {
                     direction,
-                    output_dir: std::path::PathBuf::from(&dir),
+                    output_dir,
+                    db_dir: std::path::PathBuf::from(&config.sync.db_dir),
+                    remote: config.sync.remote.clone(),
                     include_daily_notes: daily,
                     dry_run,
                     concurrency,
                     filter,
                 };
 
-                let engine = sync::SyncEngine::new(client, sync_config)
+                let mut engine = sync::SyncEngine::new(client, sync_config)
                     .map_err(|e| format!("Failed to initialize sync: {}", e))?;
 
                 if let Some(block_uid) = history {
-                    let hist = engine
-                        .history(&block_uid)
-                        .map_err(|e| format!("History error: {}", e))?;
-                    Ok(serde_json::to_string_pretty(&hist).unwrap_or_default())
+                    match engine.history(&block_uid) {
+                        Some(hist) => Ok(serde_json::to_string_pretty(&hist).unwrap_or_default()),
+                        None => Ok(format!("No history found for block '{}'", block_uid)),
+                    }
                 } else {
                     let report = engine
                         .run()

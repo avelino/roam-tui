@@ -200,6 +200,34 @@ cat operations.json | roam batch -
 
 The input is a JSON array of [WriteAction](../sdk/types.md) objects.
 
+### sync
+
+Sync your Roam graph to local markdown files. See [Sync](sync.md) for full documentation.
+
+```bash
+# Pull all pages
+roam sync
+
+# Only new pages matching a prefix
+roam sync --filter "Project/"
+
+# Preview without writing
+roam sync --dry-run
+
+# Custom output directory
+roam sync --dir ~/notes/roam
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--direction` | `pull` | `pull`, `push` (future), `both` (future) |
+| `-d`, `--dir` | config `sync.dir` | Output directory |
+| `--daily` | false | Include daily notes |
+| `--dry-run` | false | Preview mode |
+| `--concurrency` | `5` | Parallel fetches |
+| `--filter` | none | Page title prefix filter |
+| `--history` | none | Show history for a page UID |
+
 ### mcp
 
 Start the MCP server over stdio (used by AI assistants).

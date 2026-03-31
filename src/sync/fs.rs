@@ -12,10 +12,9 @@ pub fn page_path(base: &Path, title: &str) -> PathBuf {
         .join(format!("{}.md", sanitize_filename(title)))
 }
 
-#[allow(dead_code)]
-pub fn daily_path(base: &Path, date: &chrono::NaiveDate) -> PathBuf {
-    base.join("daily")
-        .join(format!("{}.md", date.format("%Y-%m-%d")))
+/// Daily note path from UID (MM-DD-YYYY → daily/MM-DD-YYYY.md).
+pub fn daily_path_from_uid(base: &Path, uid: &str) -> PathBuf {
+    base.join("daily").join(format!("{}.md", uid))
 }
 
 pub fn ensure_dirs(base: &Path) -> std::io::Result<()> {
@@ -55,10 +54,9 @@ mod tests {
     }
 
     #[test]
-    fn daily_path_format() {
+    fn daily_path_from_uid_format() {
         let base = Path::new("/tmp/roam-sync");
-        let date = chrono::NaiveDate::from_ymd_opt(2026, 3, 30).unwrap();
-        let p = daily_path(base, &date);
-        assert_eq!(p, PathBuf::from("/tmp/roam-sync/daily/2026-03-30.md"));
+        let p = daily_path_from_uid(base, "03-30-2026");
+        assert_eq!(p, PathBuf::from("/tmp/roam-sync/daily/03-30-2026.md"));
     }
 }

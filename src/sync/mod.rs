@@ -1,4 +1,5 @@
 pub mod fs;
+pub mod git;
 pub mod pull;
 pub mod push;
 pub mod store;
@@ -22,6 +23,8 @@ pub enum SyncDirection {
 pub struct SyncConfig {
     pub direction: SyncDirection,
     pub output_dir: PathBuf,
+    pub db_dir: PathBuf,
+    pub remote: String,
     pub include_daily_notes: bool,
     pub dry_run: bool,
     pub concurrency: usize,
@@ -33,6 +36,8 @@ impl Default for SyncConfig {
         Self {
             direction: SyncDirection::Pull,
             output_dir: PathBuf::from("roam-sync"),
+            db_dir: PathBuf::from(".chrondb"),
+            remote: String::new(),
             include_daily_notes: false,
             dry_run: false,
             concurrency: 5,
@@ -72,8 +77,13 @@ pub struct SyncEngine {
 
 impl SyncEngine {
     pub fn new(client: RoamClient, config: SyncConfig) -> Result<Self> {
-        let db_dir = config.output_dir.join(".chrondb");
-        let store = SyncStore::open(&db_dir)?;
+        // Pull markdown files from remote before starting
+        if !config.remote.is_empty() {
+            git::pull(&config.output_dir, &config.remote);
+        }
+
+        let store = SyncStore::open(&config.db_dir)?;
+        eprintln!("{} pages in ChronDB", store.known_page_count());
         Ok(Self {
             client,
             store,
@@ -81,22 +91,35 @@ impl SyncEngine {
         })
     }
 
-    pub async fn run(&self) -> Result<SyncReport> {
-        match self.config.direction {
-            SyncDirection::Pull => pull::pull_sync(&self.client, &self.store, &self.config).await,
-            SyncDirection::Push => push::push_sync(&self.client, &self.store, &self.config).await,
+    pub async fn run(&mut self) -> Result<SyncReport> {
+        let report = match self.config.direction {
+            SyncDirection::Pull => {
+                pull::pull_sync(&self.client, &mut self.store, &self.config).await?
+            }
+            SyncDirection::Push => {
+                push::push_sync(&self.client, &mut self.store, &self.config).await?
+            }
             SyncDirection::Both => {
-                let mut report = pull::pull_sync(&self.client, &self.store, &self.config).await?;
-                let push_report = push::push_sync(&self.client, &self.store, &self.config).await?;
+                let mut report =
+                    pull::pull_sync(&self.client, &mut self.store, &self.config).await?;
+                let push_report =
+                    push::push_sync(&self.client, &mut self.store, &self.config).await?;
                 report.created += push_report.created;
                 report.updated += push_report.updated;
                 report.errors.extend(push_report.errors);
-                Ok(report)
+                report
             }
+        };
+
+        // Always commit + push markdown files to remote
+        if !self.config.remote.is_empty() {
+            git::commit_and_push(&self.config.output_dir, &self.config.remote);
         }
+
+        Ok(report)
     }
 
-    pub fn history(&self, block_uid: &str) -> Result<serde_json::Value> {
-        self.store.history(block_uid)
+    pub fn history(&self, page_uid: &str) -> Option<serde_json::Value> {
+        self.store.page_history(page_uid).ok()
     }
 }
