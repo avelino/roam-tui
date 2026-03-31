@@ -30,6 +30,10 @@ pub fn search_blocks_query() -> String {
     "[:find ?uid ?s ?page-title :where [?b :block/string ?s] [?b :block/uid ?uid] [?b :block/page ?p] [?p :node/title ?page-title]]".to_string()
 }
 
+pub fn all_blocks_fingerprint_query() -> String {
+    "[:find ?page-uid ?block-uid ?block-string :where [?p :block/uid ?page-uid] [?p :node/title _] [?b :block/page ?p] [?b :block/uid ?block-uid] [?b :block/string ?block-string]]".to_string()
+}
+
 pub fn graph_page_count_query() -> String {
     "[:find (count ?e) :where [?e :node/title]]".to_string()
 }

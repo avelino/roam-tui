@@ -10,6 +10,8 @@ mod highlight;
 mod keys;
 mod markdown;
 mod mcp;
+#[cfg(feature = "sync")]
+mod sync;
 mod ui;
 
 use std::path::PathBuf;
@@ -119,6 +121,38 @@ enum Commands {
         /// JSON file path (use "-" for stdin)
         #[arg(default_value = "-")]
         file: String,
+    },
+
+    /// Sync Roam graph content with local markdown files
+    #[cfg(feature = "sync")]
+    Sync {
+        /// Sync direction: pull, push, or both
+        #[arg(long, default_value = "pull")]
+        direction: sync::SyncDirection,
+
+        /// Output directory for synced files
+        #[arg(long, short, default_value = "roam-sync")]
+        dir: String,
+
+        /// Include daily notes
+        #[arg(long)]
+        daily: bool,
+
+        /// Only show what would change, don't write files
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Number of concurrent page fetches
+        #[arg(long, default_value = "5")]
+        concurrency: usize,
+
+        /// Only sync pages matching this prefix
+        #[arg(long)]
+        filter: Option<String>,
+
+        /// Show version history for a block UID
+        #[arg(long)]
+        history: Option<String>,
     },
 }
 
@@ -403,6 +437,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::fs::read_to_string(&file)?
                 };
                 commands::batch(&client, &input).await
+            }
+            #[cfg(feature = "sync")]
+            Commands::Sync {
+                direction,
+                dir,
+                daily,
+                dry_run,
+                concurrency,
+                filter,
+                history,
+            } => {
+                let sync_config = sync::SyncConfig {
+                    direction,
+                    output_dir: std::path::PathBuf::from(&dir),
+                    include_daily_notes: daily,
+                    dry_run,
+                    concurrency,
+                    filter,
+                };
+
+                let engine = sync::SyncEngine::new(client, sync_config)
+                    .map_err(|e| format!("Failed to initialize sync: {}", e))?;
+
+                if let Some(block_uid) = history {
+                    let hist = engine
+                        .history(&block_uid)
+                        .map_err(|e| format!("History error: {}", e))?;
+                    Ok(serde_json::to_string_pretty(&hist).unwrap_or_default())
+                } else {
+                    let report = engine
+                        .run()
+                        .await
+                        .map_err(|e| format!("Sync error: {}", e))?;
+                    Ok(serde_json::to_string_pretty(&serde_json::json!({
+                        "created": report.created,
+                        "updated": report.updated,
+                        "unchanged": report.unchanged,
+                        "deleted": report.deleted,
+                        "errors": report.errors,
+                    }))
+                    .unwrap_or_default())
+                }
             }
         };
 
