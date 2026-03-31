@@ -5,6 +5,7 @@ pub enum RoamError {
     Api { status: u16, message: String },
     Http(reqwest::Error),
     Config(String),
+    Generic(String),
     Io(std::io::Error),
     Json(serde_json::Error),
     TomlDe(toml::de::Error),
@@ -16,6 +17,7 @@ impl fmt::Display for RoamError {
             Self::Api { status, message } => write!(f, "API error ({}): {}", status, message),
             Self::Http(e) => write!(f, "HTTP error: {}", e),
             Self::Config(msg) => write!(f, "Config error: {}", msg),
+            Self::Generic(msg) => write!(f, "{}", msg),
             Self::Io(e) => write!(f, "IO error: {}", e),
             Self::Json(e) => write!(f, "JSON error: {}", e),
             Self::TomlDe(e) => write!(f, "TOML parse error: {}", e),
@@ -30,7 +32,7 @@ impl std::error::Error for RoamError {
             Self::Io(e) => Some(e),
             Self::Json(e) => Some(e),
             Self::TomlDe(e) => Some(e),
-            _ => None,
+            Self::Api { .. } | Self::Config(_) | Self::Generic(_) => None,
         }
     }
 }
