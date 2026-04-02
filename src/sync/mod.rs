@@ -1,10 +1,10 @@
 pub mod fs;
-pub mod git;
 pub mod pull;
 pub mod push;
 pub mod store;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::api::client::RoamClient;
 use crate::error::Result;
@@ -77,11 +77,6 @@ pub struct SyncEngine {
 
 impl SyncEngine {
     pub fn new(client: RoamClient, config: SyncConfig) -> Result<Self> {
-        // Pull markdown files from remote before starting
-        if !config.remote.is_empty() {
-            git::pull(&config.output_dir, &config.remote);
-        }
-
         let store = SyncStore::open(&config.db_dir)?;
         eprintln!("{} pages in ChronDB", store.known_page_count());
         Ok(Self {
@@ -111,9 +106,9 @@ impl SyncEngine {
             }
         };
 
-        // Always commit + push markdown files to remote
+        // Push markdown files to remote (always when configured)
         if !self.config.remote.is_empty() {
-            git::commit_and_push(&self.config.output_dir, &self.config.remote);
+            git_commit_and_push(&self.config.output_dir, &self.config.remote);
         }
 
         Ok(report)
@@ -121,5 +116,68 @@ impl SyncEngine {
 
     pub fn history(&self, page_uid: &str) -> Option<serde_json::Value> {
         self.store.page_history(page_uid).ok()
+    }
+}
+
+// --- Git operations on the markdown sync directory ---
+
+fn git_commit_and_push(sync_dir: &Path, remote: &str) {
+    if !sync_dir.exists() {
+        return;
+    }
+
+    // Init if needed
+    if !sync_dir.join(".git").exists() {
+        let _ = Command::new("git")
+            .args(["init", "-b", "main"])
+            .current_dir(sync_dir)
+            .output();
+    }
+
+    // Ensure remote
+    let has_remote = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(sync_dir)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if has_remote {
+        let _ = Command::new("git")
+            .args(["remote", "set-url", "origin", remote])
+            .current_dir(sync_dir)
+            .output();
+    } else {
+        let _ = Command::new("git")
+            .args(["remote", "add", "origin", remote])
+            .current_dir(sync_dir)
+            .output();
+    }
+
+    // Stage + commit + push
+    let _ = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(sync_dir)
+        .output();
+
+    let _ = Command::new("git")
+        .args(["commit", "-m", "sync: update from Roam"])
+        .current_dir(sync_dir)
+        .output();
+
+    eprintln!("Git: pushing markdowns to remote...");
+    match Command::new("git")
+        .args(["push", "-u", "origin", "main"])
+        .current_dir(sync_dir)
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            eprintln!("Git: pushed to remote");
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("Git: push warning: {}", stderr.trim());
+        }
+        Err(e) => eprintln!("Git: push failed: {}", e),
     }
 }
