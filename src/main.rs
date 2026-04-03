@@ -21,7 +21,7 @@ use config::AppConfig;
 use roam_sdk::api::client::RoamClient;
 
 #[derive(Parser)]
-#[command(name = "roam", about = "Roam Research TUI and MCP server")]
+#[command(name = "roam", version, about = "Roam Research TUI and MCP server")]
 struct Cli {
     /// Run as MCP server (stdio transport)
     #[arg(long, hide = true)]
