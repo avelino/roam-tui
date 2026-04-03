@@ -202,25 +202,25 @@ The input is a JSON array of [WriteAction](../sdk/types.md) objects.
 
 ### sync
 
-Sync your Roam graph to local markdown files. See [Sync](sync.md) for full documentation.
+Bidirectional sync between Roam and local markdown files. See [Sync](sync.md) for full documentation.
 
 ```bash
-# Pull all pages
+# Pull changes from Roam
 roam sync
 
-# Only new pages matching a prefix
-roam sync --filter "Project/"
+# Push local edits to Roam
+roam sync --direction push
+
+# Full bidirectional sync
+roam sync --direction both
 
 # Preview without writing
 roam sync --dry-run
-
-# Custom output directory
-roam sync --dir ~/notes/roam
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--direction` | `pull` | `pull`, `push` (future), `both` (future) |
+| `--direction` | `pull` | `pull`, `push`, or `both` |
 | `-d`, `--dir` | config `sync.dir` | Output directory |
 | `--daily` | false | Include daily notes |
 | `--dry-run` | false | Preview mode |

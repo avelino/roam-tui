@@ -297,7 +297,7 @@ async fn pull_and_store_page(
     Ok(block_count)
 }
 
-fn parse_blocks_from_pull(result: &serde_json::Value) -> Vec<Block> {
+pub fn parse_blocks_from_pull(result: &serde_json::Value) -> Vec<Block> {
     result
         .get(":block/children")
         .and_then(|v| v.as_array())

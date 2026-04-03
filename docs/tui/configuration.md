@@ -24,6 +24,7 @@ search = "Ctrl+f"
 [sync]
 dir = "~/.config/roam-tui/sync"
 db_dir = "~/.config/roam-tui/.chrondb"
+remote = "git@github.com:user/notes.git"
 ```
 
 ## Options
@@ -68,6 +69,7 @@ See [Keybindings](keybindings.md) for all available actions and key format.
 |---|---|---|---|
 | `dir` | string | `~/.config/roam-tui/sync` | Directory for synced markdown files |
 | `db_dir` | string | `~/.config/roam-tui/.chrondb` | ChronDB storage directory |
+| `remote` | string | `""` | Git remote URL for markdown backup (e.g. `git@github.com:user/notes.git`) |
 
 See [Sync](../cli/sync.md) for usage details.
 
@@ -85,6 +87,7 @@ Every config option can be set via environment variables with the `ROAM_` prefix
 | `ROAM_KEYBINDINGS_PRESET` | `keybindings.preset` |
 | `ROAM_SYNC_DIR` | `sync.dir` |
 | `ROAM_SYNC_DB__DIR` | `sync.db_dir` |
+| `ROAM_SYNC_REMOTE` | `sync.remote` |
 
 Environment variables override file values. This is useful for keeping tokens out of config files:
 
