@@ -1,4 +1,5 @@
 pub mod fs;
+pub mod parse;
 pub mod pull;
 pub mod push;
 pub mod store;

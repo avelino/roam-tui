@@ -31,11 +31,12 @@ pub fn search_blocks_query() -> String {
     "[:find ?uid ?s ?page-title :where [?b :block/string ?s] [?b :block/uid ?uid] [?b :block/page ?p] [?p :node/title ?page-title]]".to_string()
 }
 
-/// Pages with blocks edited after `since_ms` (epoch millis).
-/// Returns (page-title, page-uid) — deduplicated by Datalog :find.
+/// Pages edited after `since_ms` (epoch millis).
+/// Uses :page/edit-time which updates when any block on the page
+/// (or any block referenced on the page) changes.
 pub fn pages_modified_since_query(since_ms: i64) -> String {
     format!(
-        "[:find ?title ?page-uid :where [?b :edit/time ?t] [(> ?t {})] [?b :block/page ?p] [?p :node/title ?title] [?p :block/uid ?page-uid]]",
+        "[:find ?title ?uid :where [?p :node/title ?title] [?p :block/uid ?uid] [?p :page/edit-time ?t] [(> ?t {})]]",
         since_ms
     )
 }
