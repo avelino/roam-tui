@@ -223,9 +223,9 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chrondb"
-version = "0.2.3-dev.24"
+version = "0.2.3-dev.12298e3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f6d1140b4d9bae70df2d9d16bcd68cd3b7b90de614ff48ad474d207bae2bec1"
+checksum = "5c234715a25f8e5a3aa5c86459f8de593e60e6a9acd24054c3a150d735cd4820"
 dependencies = [
  "dirs",
  "flate2",

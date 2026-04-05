@@ -155,14 +155,21 @@ fn git_commit_and_push(sync_dir: &Path, remote: &str) {
             .output();
     }
 
-    // Stage + commit + push
+    // Stage all changes
     let _ = Command::new("git")
         .args(["add", "-A"])
         .current_dir(sync_dir)
         .output();
 
+    // Read staged changes to build commit message
+    let changes = get_staged_changes(sync_dir);
+    if changes.is_empty() {
+        return; // nothing to commit or push
+    }
+
+    let message = build_commit_message(&changes);
     let _ = Command::new("git")
-        .args(["commit", "-m", "sync: update from Roam"])
+        .args(["commit", "-m", &message])
         .current_dir(sync_dir)
         .output();
 
@@ -180,5 +187,250 @@ fn git_commit_and_push(sync_dir: &Path, remote: &str) {
             eprintln!("Git: push warning: {}", stderr.trim());
         }
         Err(e) => eprintln!("Git: push failed: {}", e),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ChangeKind {
+    Added,
+    Modified,
+    Deleted,
+}
+
+fn get_staged_changes(sync_dir: &Path) -> Vec<(ChangeKind, String)> {
+    let output = Command::new("git")
+        .args(["diff", "--cached", "--name-status"])
+        .current_dir(sync_dir)
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(2, '\t');
+            let status = parts.next()?.trim();
+            let path = parts.next()?.trim().to_string();
+            let kind = match status.chars().next()? {
+                'A' => ChangeKind::Added,
+                'M' => ChangeKind::Modified,
+                'D' => ChangeKind::Deleted,
+                _ => ChangeKind::Modified,
+            };
+            Some((kind, path))
+        })
+        .collect()
+}
+
+fn build_commit_message(changes: &[(ChangeKind, String)]) -> String {
+    let added: Vec<&str> = changes
+        .iter()
+        .filter(|(k, _)| *k == ChangeKind::Added)
+        .map(|(_, p)| humanize_path(p))
+        .collect();
+    let modified: Vec<&str> = changes
+        .iter()
+        .filter(|(k, _)| *k == ChangeKind::Modified)
+        .map(|(_, p)| humanize_path(p))
+        .collect();
+    let deleted: Vec<&str> = changes
+        .iter()
+        .filter(|(k, _)| *k == ChangeKind::Deleted)
+        .map(|(_, p)| humanize_path(p))
+        .collect();
+
+    let title = build_title(&added, &modified, &deleted);
+    let body = build_body(&added, &modified, &deleted);
+
+    if body.is_empty() {
+        title
+    } else {
+        format!("{}\n\n{}", title, body)
+    }
+}
+
+fn build_title(added: &[&str], modified: &[&str], deleted: &[&str]) -> String {
+    let total = added.len() + modified.len() + deleted.len();
+
+    // Single operation type
+    if modified.is_empty() && deleted.is_empty() {
+        return format!("sync: add {}", summarize_names(added));
+    }
+    if added.is_empty() && deleted.is_empty() {
+        return format!("sync: update {}", summarize_names(modified));
+    }
+    if added.is_empty() && modified.is_empty() {
+        return format!("sync: remove {}", summarize_names(deleted));
+    }
+
+    // Mixed operations — aggregate
+    let mut parts: Vec<String> = Vec::new();
+    if !added.is_empty() {
+        parts.push(count_by_type(added, "added"));
+    }
+    if !modified.is_empty() {
+        parts.push(count_by_type(modified, "updated"));
+    }
+    if !deleted.is_empty() {
+        parts.push(count_by_type(deleted, "removed"));
+    }
+
+    let detail = parts.join(", ");
+    if total <= 3 {
+        format!("sync: {}", detail)
+    } else {
+        format!("sync: {} changes ({})", total, detail)
+    }
+}
+
+fn summarize_names(names: &[&str]) -> String {
+    match names.len() {
+        0 => String::new(),
+        1 => names[0].to_string(),
+        2 => format!("{} and {}", names[0], names[1]),
+        3 => format!("{}, {} and {}", names[0], names[1], names[2]),
+        n => {
+            let (daily, pages): (Vec<&&str>, Vec<&&str>) =
+                names.iter().partition(|n| n.starts_with("daily/"));
+            let mut parts = Vec::new();
+            if !daily.is_empty() {
+                parts.push(format!("{} daily notes", daily.len()));
+            }
+            if !pages.is_empty() {
+                parts.push(format!("{} pages", pages.len()));
+            }
+            if parts.is_empty() {
+                format!("{} files", n)
+            } else {
+                parts.join(" and ")
+            }
+        }
+    }
+}
+
+fn count_by_type(names: &[&str], verb: &str) -> String {
+    if names.len() == 1 {
+        format!("{} {}", names[0], verb)
+    } else {
+        format!("{} {}", names.len(), verb)
+    }
+}
+
+fn build_body(added: &[&str], modified: &[&str], deleted: &[&str]) -> String {
+    let total = added.len() + modified.len() + deleted.len();
+    if total <= 3 {
+        return String::new();
+    }
+
+    let mut lines = Vec::new();
+    if !added.is_empty() {
+        lines.push(format!("Added: {}", added.join(", ")));
+    }
+    if !modified.is_empty() {
+        lines.push(format!("Updated: {}", modified.join(", ")));
+    }
+    if !deleted.is_empty() {
+        lines.push(format!("Removed: {}", deleted.join(", ")));
+    }
+    lines.join("\n")
+}
+
+fn humanize_path(path: &str) -> &str {
+    path.strip_suffix(".md").unwrap_or(path)
+}
+
+#[cfg(test)]
+mod commit_tests {
+    use super::*;
+
+    #[test]
+    fn single_page_added() {
+        let changes = vec![(ChangeKind::Added, "pages/Project Alpha.md".into())];
+        assert_eq!(
+            build_commit_message(&changes),
+            "sync: add pages/Project Alpha"
+        );
+    }
+
+    #[test]
+    fn single_page_modified() {
+        let changes = vec![(ChangeKind::Modified, "pages/Meeting Notes.md".into())];
+        assert_eq!(
+            build_commit_message(&changes),
+            "sync: update pages/Meeting Notes"
+        );
+    }
+
+    #[test]
+    fn single_page_deleted() {
+        let changes = vec![(ChangeKind::Deleted, "pages/Old Page.md".into())];
+        assert_eq!(
+            build_commit_message(&changes),
+            "sync: remove pages/Old Page"
+        );
+    }
+
+    #[test]
+    fn two_pages_modified() {
+        let changes = vec![
+            (ChangeKind::Modified, "pages/Alpha.md".into()),
+            (ChangeKind::Modified, "pages/Beta.md".into()),
+        ];
+        assert_eq!(
+            build_commit_message(&changes),
+            "sync: update pages/Alpha and pages/Beta"
+        );
+    }
+
+    #[test]
+    fn daily_note_added() {
+        let changes = vec![(ChangeKind::Added, "daily/04-03-2026.md".into())];
+        assert_eq!(build_commit_message(&changes), "sync: add daily/04-03-2026");
+    }
+
+    #[test]
+    fn mixed_operations_few() {
+        let changes = vec![
+            (ChangeKind::Added, "pages/New.md".into()),
+            (ChangeKind::Modified, "daily/04-03-2026.md".into()),
+        ];
+        let msg = build_commit_message(&changes);
+        assert!(msg.starts_with("sync:"));
+        assert!(msg.contains("added"));
+        assert!(msg.contains("updated"));
+    }
+
+    #[test]
+    fn many_files_has_body() {
+        let changes = vec![
+            (ChangeKind::Added, "pages/A.md".into()),
+            (ChangeKind::Added, "pages/B.md".into()),
+            (ChangeKind::Modified, "pages/C.md".into()),
+            (ChangeKind::Deleted, "pages/D.md".into()),
+        ];
+        let msg = build_commit_message(&changes);
+        assert!(msg.contains("\n\n")); // has body
+        assert!(msg.contains("Added:"));
+        assert!(msg.contains("Updated:"));
+        assert!(msg.contains("Removed:"));
+    }
+
+    #[test]
+    fn many_same_type_aggregates() {
+        let changes: Vec<_> = (0..10)
+            .map(|i| (ChangeKind::Added, format!("pages/Page{}.md", i)))
+            .collect();
+        let msg = build_commit_message(&changes);
+        assert!(msg.contains("10 pages"));
+    }
+
+    #[test]
+    fn empty_changes_no_crash() {
+        let msg = build_commit_message(&[]);
+        assert!(msg.is_empty() || msg.starts_with("sync:"));
     }
 }
