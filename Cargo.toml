@@ -48,7 +48,7 @@ tree-sitter-c = "0.24"
 tree-sitter-toml-ng = "0.7"
 tree-sitter-yaml = "0.7"
 tree-sitter-md = "0.3"
-rmcp = { version = "1.1.0", features = ["server", "transport-io", "schemars"] }
+rmcp = { version = "1.4.0", features = ["server", "transport-io", "schemars"] }
 clap = { version = "4", features = ["derive"] }
 chrondb = { version = "0.2.3-dev.24", optional = true }
 
