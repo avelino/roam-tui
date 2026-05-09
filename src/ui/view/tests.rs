@@ -1,6 +1,7 @@
 use super::*;
 use crate::api::types::{Block, LinkedRefBlock, LinkedRefGroup};
 use crate::app::LinkedRefsState;
+use crate::edit_buffer::EditBuffer;
 use crate::ui::text_wrap::{inject_cursor, wrap_spans};
 use crate::ui::visible_lines::{build_visible_lines, VisibleLine};
 use chrono::NaiveDate;
@@ -43,6 +44,32 @@ fn make_daily_note(title: &str, year: i32, month: u32, day: u32, blocks: Vec<Blo
 
 fn render_widget(days: &[DailyNote], selection: usize, width: u16, height: u16) -> Buffer {
     render_widget_with_refs(days, selection, width, height, &HashMap::new())
+}
+
+fn render_widget_editing(
+    days: &[DailyNote],
+    selection: usize,
+    width: u16,
+    height: u16,
+    buffer: &EditBuffer,
+) -> Buffer {
+    let area = Rect::new(0, 0, width, height);
+    let mut buf = Buffer::empty(area);
+    let widget = MainArea {
+        days,
+        selection: &Selection::Single(selection),
+        cursor_col: 0,
+        loading: false,
+        loading_more: false,
+        edit_info: Some(EditInfo {
+            buffer,
+            block_index: selection,
+        }),
+        block_ref_cache: &HashMap::new(),
+        linked_refs: &HashMap::new(),
+    };
+    widget.render(area, &mut buf);
+    buf
 }
 
 fn render_widget_with_refs(
@@ -547,6 +574,34 @@ fn long_block_wraps_in_visible_output() {
     assert!(line1.contains("this"));
     assert!(!line2.trim().is_empty());
     assert!(!line2.contains('•'));
+}
+
+#[test]
+fn long_edit_block_wraps_without_repeating_bullet() {
+    let long_text = "this is a very long block text that should wrap in edit mode";
+    let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("b1", long_text, 0)]);
+    let buffer = EditBuffer::new(long_text);
+    let buf = render_widget_editing(&[day], 0, 30, 10, &buffer);
+
+    let line1 = read_line(&buf, 1, 30);
+    let line2 = read_line(&buf, 2, 30);
+    assert!(line1.contains('•'));
+    assert!(line1.contains("this"));
+    assert!(!line2.trim().is_empty());
+    assert!(!line2.contains('•'));
+}
+
+#[test]
+fn edit_mode_scroll_tracks_wrapped_cursor_line() {
+    let text = "alpha beta gamma delta epsilon zeta eta theta";
+    let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("b1", text, 0)]);
+    let mut buffer = EditBuffer::new(text);
+    buffer.cursor = text.find("theta").unwrap();
+    let buf = render_widget_editing(&[day], 0, 18, 1, &buffer);
+
+    let visible_line = read_line(&buf, 0, 18);
+    assert!(visible_line.contains("theta"));
+    assert!(!visible_line.contains("alpha"));
 }
 
 #[test]
