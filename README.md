@@ -296,6 +296,10 @@ All options with defaults:
 name = ""                    # required — your Roam graph name
 api_token = ""               # required — or set ROAM_GRAPH_API__TOKEN env var
 
+# Local API (requires Roam desktop app running — faster, fewer network requests)
+# local_api = false          # set to true to connect to the Roam local API
+# local_api_port = 7070      # port for the Roam local API server (default: 7070)
+
 [ui]
 theme = "dark"               # dark | light
 sidebar_default = true       # show sidebar on startup
@@ -344,6 +348,7 @@ What's working now and what's next.
 - [x] MCP server (`--mcp` flag, 18 tools, npm distribution)
 - [x] Export to markdown and JSON (CLI + TUI keybinding)
 - [x] Multi-block selection with batch operations (Shift+Up/Down)
+- [x] Local API support (`local_api = true` in config, requires Roam desktop)
 
 ### Planned
 

@@ -23,6 +23,14 @@ pub struct GraphConfig {
     pub name: String,
     #[serde(default)]
     pub api_token: String,
+    /// Use the Roam local API (requires Roam desktop app running).
+    /// When true, connects to http://localhost:{local_api_port} instead of
+    /// the remote cloud API — far fewer network requests, much faster.
+    #[serde(default)]
+    pub local_api: bool,
+    /// Port for the Roam local API server (default: 7070).
+    #[serde(default = "default_local_api_port")]
+    pub local_api_port: u16,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -110,6 +118,10 @@ fn default_db_dir() -> String {
         .to_string()
 }
 
+fn default_local_api_port() -> u16 {
+    7070
+}
+
 fn default_preset() -> String {
     "vim".into()
 }
@@ -131,7 +143,7 @@ impl AppConfig {
         if self.graph.name.is_empty() {
             return Err(RoamError::Config("graph.name is required".into()));
         }
-        if self.graph.api_token.is_empty() {
+        if !self.graph.local_api && self.graph.api_token.is_empty() {
             return Err(RoamError::Config(
                 "graph.api_token is required (set in config or ROAM_API_TOKEN env var)".into(),
             ));
@@ -158,6 +170,10 @@ impl AppConfig {
 name = "your-graph-name"
 api_token = ""  # or set ROAM_API_TOKEN env var
 
+# Local API (requires Roam desktop app running — faster, fewer network requests)
+# local_api = false
+# local_api_port = 7070
+
 [ui]
 theme = "dark"
 sidebar_default = true
@@ -181,6 +197,8 @@ preset = "vim"  # vim | emacs | vscode
             graph: GraphConfig {
                 name: String::new(),
                 api_token: String::new(),
+                local_api: false,
+                local_api_port: default_local_api_port(),
             },
             ui: UiConfig::default(),
             keybindings: KeybindingsConfig::default(),
@@ -344,5 +362,106 @@ search = "Ctrl+f"
     fn config_dir_returns_some() {
         let dir = AppConfig::config_dir();
         assert!(dir.is_some());
+    }
+
+    #[test]
+    fn local_api_defaults_to_false_with_port_7070() {
+        let tmp = TempDir::new().unwrap();
+        let path = write_config(
+            tmp.path(),
+            r#"
+[graph]
+name = "test-graph"
+api_token = "token-123"
+"#,
+        );
+
+        let config = AppConfig::load_from_path(&path).unwrap();
+        assert!(!config.graph.local_api);
+        assert_eq!(config.graph.local_api_port, 7070);
+    }
+
+    #[test]
+    fn local_api_can_be_enabled_in_config() {
+        let tmp = TempDir::new().unwrap();
+        let path = write_config(
+            tmp.path(),
+            r#"
+[graph]
+name = "test-graph"
+local_api = true
+"#,
+        );
+
+        let config = AppConfig::load_from_path(&path).unwrap();
+        assert!(config.graph.local_api);
+        assert_eq!(config.graph.local_api_port, 7070);
+    }
+
+    #[test]
+    fn local_api_custom_port_is_parsed() {
+        let tmp = TempDir::new().unwrap();
+        let path = write_config(
+            tmp.path(),
+            r#"
+[graph]
+name = "test-graph"
+local_api = true
+local_api_port = 8080
+"#,
+        );
+
+        let config = AppConfig::load_from_path(&path).unwrap();
+        assert!(config.graph.local_api);
+        assert_eq!(config.graph.local_api_port, 8080);
+    }
+
+    #[test]
+    fn validate_succeeds_without_api_token_when_local_api_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let path = write_config(
+            tmp.path(),
+            r#"
+[graph]
+name = "test-graph"
+api_token = ""
+local_api = true
+"#,
+        );
+
+        let result = AppConfig::load_from_path(&path);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_still_fails_without_api_token_when_local_api_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let path = write_config(
+            tmp.path(),
+            r#"
+[graph]
+name = "test-graph"
+api_token = ""
+local_api = false
+"#,
+        );
+
+        let err = AppConfig::load_from_path(&path);
+        assert!(err.is_err());
+        let msg = err.unwrap_err().to_string();
+        assert!(msg.contains("api_token"));
+    }
+
+    #[test]
+    fn write_default_includes_local_api_comment() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("config.toml");
+
+        AppConfig::write_default(&path).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("local_api"));
+        assert!(content.contains("local_api_port"));
+        assert!(content.contains("7070"));
     }
 }
