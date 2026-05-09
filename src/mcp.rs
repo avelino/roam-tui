@@ -441,15 +441,7 @@ impl ServerHandler for RoamMcp {
 }
 
 pub async fn run(config: &AppConfig) -> Result<(), Box<dyn std::error::Error>> {
-    let client = if config.graph.local_api {
-        let base_url = format!(
-            "http://localhost:{}/api/graph/{}",
-            config.graph.local_api_port, config.graph.name
-        );
-        RoamClient::new_with_base_url(&base_url, &config.graph.api_token)
-    } else {
-        RoamClient::new(&config.graph.name, &config.graph.api_token)
-    };
+    let client = config.build_client();
     let service = RoamMcp::new(client);
     let server = service.serve(rmcp::transport::io::stdio()).await?;
     server.waiting().await?;

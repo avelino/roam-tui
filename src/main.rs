@@ -299,15 +299,7 @@ fn config_path() -> PathBuf {
 }
 
 fn make_client(config: &AppConfig) -> RoamClient {
-    if config.graph.local_api {
-        let base_url = format!(
-            "http://localhost:{}/api/graph/{}",
-            config.graph.local_api_port, config.graph.name
-        );
-        RoamClient::new_with_base_url(&base_url, &config.graph.api_token)
-    } else {
-        RoamClient::new(&config.graph.name, &config.graph.api_token)
-    }
+    config.build_client()
 }
 
 #[tokio::main]

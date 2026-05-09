@@ -5,6 +5,7 @@ use figment::providers::{Env, Format, Serialized, Toml};
 use figment::Figment;
 use serde::{Deserialize, Serialize};
 
+use crate::api::client::RoamClient;
 use crate::error::{Result, RoamError};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -203,6 +204,24 @@ preset = "vim"  # vim | emacs | vscode
             ui: UiConfig::default(),
             keybindings: KeybindingsConfig::default(),
             sync: SyncFilesConfig::default(),
+        }
+    }
+
+    /// Build a [`RoamClient`] from this configuration.
+    ///
+    /// When `graph.local_api` is `true` the client connects to the Roam
+    /// desktop app's local HTTP server (`http://localhost:{local_api_port}`)
+    /// instead of the remote cloud API, resulting in far fewer network
+    /// round-trips and much better performance.
+    pub fn build_client(&self) -> RoamClient {
+        if self.graph.local_api {
+            let base_url = format!(
+                "http://localhost:{}/api/graph/{}",
+                self.graph.local_api_port, self.graph.name
+            );
+            RoamClient::new_with_base_url(&base_url, &self.graph.api_token)
+        } else {
+            RoamClient::new(&self.graph.name, &self.graph.api_token)
         }
     }
 }
