@@ -179,6 +179,7 @@ Full block editing with vim-style modal workflow:
 - `o` to create a new block below
 - `dd` to delete a block
 - `Tab` / `Shift+Tab` to indent/unindent
+- `Alt+Up` / `Alt+Down` to move a block among its siblings
 - Undo with `u`, redo with `Ctrl+R`
 - Auto-pairing for `()`, `[]`, `{}`
 - `{{TODO}}` / `{{DONE}}` toggle with `Alt+Enter` or `Ctrl+Enter`
@@ -252,6 +253,8 @@ Three built-in presets. Set with `keybindings.preset` in config.
 | Edit block | `i` | `Enter` | `Enter` |
 | New block | `o` | `Alt+Enter` | `Ctrl+Enter` |
 | Delete block | `dd` | — | — |
+| Move block up | `Alt+Up` | `Alt+Up` | `Alt+Shift+Up` |
+| Move block down | `Alt+Down` | `Alt+Down` | `Alt+Shift+Down` |
 | Search | `/` | `Ctrl+S` | `Ctrl+Shift+F` |
 | Undo | `u` | `Ctrl+/` | `Ctrl+Z` |
 | Redo | `Ctrl+R` | `Ctrl+Shift+/` | `Ctrl+Shift+Z` |
@@ -322,7 +325,7 @@ What's working now and what's next.
 ### Implemented
 
 - [x] Daily notes with multi-day navigation
-- [x] Block tree editing (create, edit, delete, indent, move)
+- [x] Block tree editing (create, edit, delete, indent, move, reorder siblings)
 - [x] Collapse/expand blocks
 - [x] Undo/redo
 - [x] Full-text search across blocks
@@ -357,7 +360,7 @@ What's working now and what's next.
 ```bash
 git clone https://github.com/avelino/roam-tui
 cd roam-tui
-cargo test     # 551 tests
+cargo test     # 675 tests
 cargo run      # requires config with valid API token
 ```
 

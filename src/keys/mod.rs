@@ -78,6 +78,8 @@ impl KeybindingMap {
             Action::QuickSwitcher,
             Action::Indent,
             Action::Unindent,
+            Action::MoveBlockUp,
+            Action::MoveBlockDown,
             Action::Undo,
             Action::Redo,
             Action::NavBack,

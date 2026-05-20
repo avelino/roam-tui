@@ -3338,3 +3338,255 @@ fn creating_block_via_action_is_not_placeholder() {
         Some(WriteAction::CreateBlock { .. })
     ));
 }
+
+// --- move block up/down tests (issue #6) ---
+
+#[test]
+fn move_block_up_swaps_with_previous_sibling() {
+    let mut days = vec![make_daily_note(
+        2026,
+        2,
+        21,
+        vec![
+            make_block("b1", "First", 0),
+            make_block("b2", "Second", 1),
+            make_block("b3", "Third", 2),
+        ],
+    )];
+    let result = move_block_up_in_days(&mut days, "b2");
+    assert!(result.is_some());
+    let (parent_uid, order, sibling_uid) = result.unwrap();
+    assert_eq!(sibling_uid, "b1");
+    assert_eq!(parent_uid, "02-21-2026");
+    assert_eq!(order, 0);
+    // b2 is now at position 0, b1 at position 1
+    assert_eq!(days[0].blocks[0].uid, "b2");
+    assert_eq!(days[0].blocks[0].order, 0);
+    assert_eq!(days[0].blocks[1].uid, "b1");
+    assert_eq!(days[0].blocks[1].order, 1);
+    // b3 untouched
+    assert_eq!(days[0].blocks[2].uid, "b3");
+    assert_eq!(days[0].blocks[2].order, 2);
+}
+
+#[test]
+fn move_block_up_first_block_returns_none() {
+    let mut days = vec![make_daily_note(
+        2026,
+        2,
+        21,
+        vec![make_block("b1", "First", 0), make_block("b2", "Second", 1)],
+    )];
+    assert!(move_block_up_in_days(&mut days, "b1").is_none());
+    // unchanged
+    assert_eq!(days[0].blocks[0].uid, "b1");
+    assert_eq!(days[0].blocks[1].uid, "b2");
+}
+
+#[test]
+fn move_block_up_preserves_children() {
+    let block_with_kids = Block {
+        uid: "b2".into(),
+        string: "Parent".into(),
+        order: 1,
+        children: vec![make_block("c1", "Child", 0)],
+        open: true,
+        refs: vec![],
+    };
+    let mut days = vec![make_daily_note(
+        2026,
+        2,
+        21,
+        vec![make_block("b1", "First", 0), block_with_kids],
+    )];
+    move_block_up_in_days(&mut days, "b2");
+    assert_eq!(days[0].blocks[0].uid, "b2");
+    assert_eq!(days[0].blocks[0].children.len(), 1);
+    assert_eq!(days[0].blocks[0].children[0].uid, "c1");
+}
+
+#[test]
+fn move_block_up_nonexistent_block_returns_none() {
+    let mut days = vec![make_daily_note(
+        2026,
+        2,
+        21,
+        vec![make_block("b1", "First", 0)],
+    )];
+    assert!(move_block_up_in_days(&mut days, "nope").is_none());
+}
+
+#[test]
+fn move_block_up_nested_block() {
+    let parent = Block {
+        uid: "p".into(),
+        string: "Parent".into(),
+        order: 0,
+        children: vec![
+            make_block("c1", "Child 1", 0),
+            make_block("c2", "Child 2", 1),
+        ],
+        open: true,
+        refs: vec![],
+    };
+    let mut days = vec![make_daily_note(2026, 2, 21, vec![parent])];
+    let result = move_block_up_in_days(&mut days, "c2");
+    assert!(result.is_some());
+    let (parent_uid, _, sibling_uid) = result.unwrap();
+    assert_eq!(sibling_uid, "c1");
+    assert_eq!(parent_uid, "p");
+    assert_eq!(days[0].blocks[0].children[0].uid, "c2");
+    assert_eq!(days[0].blocks[0].children[1].uid, "c1");
+}
+
+#[test]
+fn move_block_down_swaps_with_next_sibling() {
+    let mut days = vec![make_daily_note(
+        2026,
+        2,
+        21,
+        vec![
+            make_block("b1", "First", 0),
+            make_block("b2", "Second", 1),
+            make_block("b3", "Third", 2),
+        ],
+    )];
+    let result = move_block_down_in_days(&mut days, "b2");
+    assert!(result.is_some());
+    let (parent_uid, order, sibling_uid) = result.unwrap();
+    assert_eq!(sibling_uid, "b3");
+    assert_eq!(parent_uid, "02-21-2026");
+    assert_eq!(order, 2);
+    assert_eq!(days[0].blocks[0].uid, "b1");
+    assert_eq!(days[0].blocks[0].order, 0);
+    assert_eq!(days[0].blocks[1].uid, "b3");
+    assert_eq!(days[0].blocks[1].order, 1);
+    assert_eq!(days[0].blocks[2].uid, "b2");
+    assert_eq!(days[0].blocks[2].order, 2);
+}
+
+#[test]
+fn move_block_down_last_block_returns_none() {
+    let mut days = vec![make_daily_note(
+        2026,
+        2,
+        21,
+        vec![make_block("b1", "First", 0), make_block("b2", "Second", 1)],
+    )];
+    assert!(move_block_down_in_days(&mut days, "b2").is_none());
+    assert_eq!(days[0].blocks[0].uid, "b1");
+    assert_eq!(days[0].blocks[1].uid, "b2");
+}
+
+#[test]
+fn move_block_down_nested_block() {
+    let parent = Block {
+        uid: "p".into(),
+        string: "Parent".into(),
+        order: 0,
+        children: vec![
+            make_block("c1", "Child 1", 0),
+            make_block("c2", "Child 2", 1),
+        ],
+        open: true,
+        refs: vec![],
+    };
+    let mut days = vec![make_daily_note(2026, 2, 21, vec![parent])];
+    let result = move_block_down_in_days(&mut days, "c1");
+    assert!(result.is_some());
+    let (parent_uid, _, sibling_uid) = result.unwrap();
+    assert_eq!(sibling_uid, "c2");
+    assert_eq!(parent_uid, "p");
+    assert_eq!(days[0].blocks[0].children[0].uid, "c2");
+    assert_eq!(days[0].blocks[0].children[1].uid, "c1");
+}
+
+#[test]
+fn move_block_up_handler_emits_write_action_and_pushes_undo() {
+    let mut state = test_state();
+    state.selected_block = 1; // b2
+    let action = super::handle_move_block_up(&mut state);
+    assert!(action.is_some());
+    match action.unwrap() {
+        WriteAction::MoveBlock { block, location } => {
+            assert_eq!(block.uid, "b2");
+            assert_eq!(location.parent_uid, "02-21-2026");
+        }
+        _ => panic!("Expected MoveBlock"),
+    }
+    // Selection follows the moved block (now at index 0)
+    assert_eq!(state.selected_block, 0);
+    // Undo entry pushed
+    assert_eq!(state.undo_stack.len(), 1);
+}
+
+#[test]
+fn move_block_down_handler_emits_write_action_and_pushes_undo() {
+    let mut state = test_state();
+    state.selected_block = 1; // b2 (middle of three)
+    let action = super::handle_move_block_down(&mut state);
+    assert!(action.is_some());
+    match action.unwrap() {
+        WriteAction::MoveBlock { block, location } => {
+            assert_eq!(block.uid, "b2");
+            assert_eq!(location.parent_uid, "02-21-2026");
+        }
+        _ => panic!("Expected MoveBlock"),
+    }
+    // Selection follows the moved block (now at index 2)
+    assert_eq!(state.selected_block, 2);
+    assert_eq!(state.undo_stack.len(), 1);
+}
+
+#[test]
+fn move_block_up_handler_at_boundary_is_noop() {
+    let mut state = test_state();
+    state.selected_block = 0; // b1, first
+    let action = super::handle_move_block_up(&mut state);
+    assert!(action.is_none());
+    // No undo pushed
+    assert!(state.undo_stack.is_empty());
+    // Selection unchanged
+    assert_eq!(state.selected_block, 0);
+}
+
+#[test]
+fn move_block_down_handler_at_boundary_is_noop() {
+    let mut state = test_state();
+    state.selected_block = 2; // b3, last
+    let action = super::handle_move_block_down(&mut state);
+    assert!(action.is_none());
+    assert!(state.undo_stack.is_empty());
+    assert_eq!(state.selected_block, 2);
+}
+
+#[test]
+fn move_block_undo_restores_original_order() {
+    let mut state = test_state();
+    state.selected_block = 1; // b2
+    super::handle_move_block_up(&mut state).expect("should move");
+    // After move: b2, b1, b3
+    assert_eq!(state.days[0].blocks[0].uid, "b2");
+
+    // Undo restores: b1, b2, b3
+    let undo_action = apply_undo(&mut state);
+    assert!(matches!(undo_action, Some(WriteAction::MoveBlock { .. })));
+    assert_eq!(state.days[0].blocks[0].uid, "b1");
+    assert_eq!(state.days[0].blocks[1].uid, "b2");
+    assert_eq!(state.days[0].blocks[2].uid, "b3");
+    // Selection restored
+    assert_eq!(state.selected_block, 1);
+}
+
+#[test]
+fn move_block_up_clears_redo_stack() {
+    let mut state = test_state();
+    state.selected_block = 1;
+    // Seed a redo entry to verify it's cleared
+    state.redo_stack.push(UndoEntry::TextEdit {
+        block_uid: "x".into(),
+        old_text: "y".into(),
+    });
+    super::handle_move_block_up(&mut state);
+    assert!(state.redo_stack.is_empty());
+}
