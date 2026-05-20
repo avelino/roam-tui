@@ -27,6 +27,8 @@ preset = "vim"  # or "emacs" or "vscode"
 | Redo | `Ctrl+R` |
 | Indent | `Tab` |
 | Unindent | `Shift+Tab` |
+| Move block up | `Alt+Up` |
+| Move block down | `Alt+Down` |
 | Search | `/` |
 | Quick switcher | `Ctrl+P` |
 | Next day | `N` / `PageDown` |
@@ -67,6 +69,8 @@ preset = "vim"  # or "emacs" or "vscode"
 | Create block below | `Alt+Enter` |
 | Undo | `Ctrl+/` |
 | Redo | `Ctrl+Shift+/` |
+| Move block up | `Alt+Up` |
+| Move block down | `Alt+Down` |
 | Search | `Ctrl+S` |
 | Next day | `Alt+N` / `PageDown` |
 | Previous day | `Alt+P` / `PageUp` |
@@ -92,6 +96,8 @@ preset = "vim"  # or "emacs" or "vscode"
 | Create block below | `Ctrl+Enter` |
 | Undo | `Ctrl+Z` |
 | Redo | `Ctrl+Shift+Z` |
+| Move block up | `Alt+Shift+Up` |
+| Move block down | `Alt+Shift+Down` |
 | Search | `Ctrl+Shift+F` |
 | Quick switcher | `Ctrl+P` |
 | Next day | `Alt+Up` / `PageDown` |
@@ -128,4 +134,4 @@ Examples: `Ctrl+k`, `Alt+Enter`, `Shift+Left`, `Ctrl+Shift+Z`.
 
 ### Available actions
 
-`quit`, `move_up`, `move_down`, `cursor_left`, `cursor_right`, `collapse`, `expand`, `enter`, `exit`, `edit_block`, `create_block`, `indent`, `unindent`, `undo`, `redo`, `search`, `quick_switcher`, `next_day`, `prev_day`, `go_daily`, `toggle_sidebar`, `nav_back`, `nav_forward`, `export`, `select_up`, `select_down`, `help`
+`quit`, `move_up`, `move_down`, `cursor_left`, `cursor_right`, `collapse`, `expand`, `enter`, `exit`, `edit_block`, `create_block`, `indent`, `unindent`, `move_block_up`, `move_block_down`, `undo`, `redo`, `search`, `quick_switcher`, `next_day`, `prev_day`, `go_daily`, `toggle_sidebar`, `nav_back`, `nav_forward`, `export`, `select_up`, `select_down`, `help`

@@ -316,6 +316,138 @@ fn find_parent_info_recursive(
     None
 }
 
+/// Move a block one position up among its siblings.
+///
+/// Swaps the block with the sibling immediately above it (same parent),
+/// swapping their `order` fields and their position in the `children` vec.
+/// Returns `Some((parent_uid, new_order, sibling_uid))` on success — where
+/// `sibling_uid` is the UID of the sibling the block was swapped with.
+/// Returns `None` when the block is already the first child of its parent
+/// or cannot be found.
+pub fn move_block_up_in_days(
+    days: &mut [DailyNote],
+    block_uid: &str,
+) -> Option<(String, i64, String)> {
+    for day in days.iter_mut() {
+        let day_uid = day.uid.clone();
+        if let Some(result) = try_swap_with_prev_sibling(&mut day.blocks, &day_uid, block_uid) {
+            return Some(result);
+        }
+    }
+    None
+}
+
+fn try_swap_with_prev_sibling(
+    blocks: &mut [Block],
+    parent_uid: &str,
+    block_uid: &str,
+) -> Option<(String, i64, String)> {
+    if let Some(pos) = blocks.iter().position(|b| b.uid == block_uid) {
+        if pos == 0 {
+            return None;
+        }
+        let sibling_uid = blocks[pos - 1].uid.clone();
+        let cur_order = blocks[pos].order;
+        let prev_order = blocks[pos - 1].order;
+        blocks[pos].order = prev_order;
+        blocks[pos - 1].order = cur_order;
+        blocks.swap(pos - 1, pos);
+        return Some((parent_uid.to_string(), prev_order, sibling_uid));
+    }
+    for block in blocks.iter_mut() {
+        let child_parent_uid = block.uid.clone();
+        if let Some(result) =
+            try_swap_with_prev_sibling(&mut block.children, &child_parent_uid, block_uid)
+        {
+            return Some(result);
+        }
+    }
+    None
+}
+
+/// Move a block one position down among its siblings.
+///
+/// Swaps the block with the sibling immediately below it (same parent),
+/// swapping their `order` fields and their position in the `children` vec.
+/// Returns `Some((parent_uid, new_order, sibling_uid))` on success — where
+/// `sibling_uid` is the UID of the sibling the block was swapped with.
+/// Returns `None` when the block is already the last child of its parent
+/// or cannot be found.
+pub fn move_block_down_in_days(
+    days: &mut [DailyNote],
+    block_uid: &str,
+) -> Option<(String, i64, String)> {
+    for day in days.iter_mut() {
+        let day_uid = day.uid.clone();
+        if let Some(result) = try_swap_with_next_sibling(&mut day.blocks, &day_uid, block_uid) {
+            return Some(result);
+        }
+    }
+    None
+}
+
+fn try_swap_with_next_sibling(
+    blocks: &mut [Block],
+    parent_uid: &str,
+    block_uid: &str,
+) -> Option<(String, i64, String)> {
+    if let Some(pos) = blocks.iter().position(|b| b.uid == block_uid) {
+        if pos + 1 >= blocks.len() {
+            return None;
+        }
+        let sibling_uid = blocks[pos + 1].uid.clone();
+        let cur_order = blocks[pos].order;
+        let next_order = blocks[pos + 1].order;
+        blocks[pos].order = next_order;
+        blocks[pos + 1].order = cur_order;
+        blocks.swap(pos, pos + 1);
+        return Some((parent_uid.to_string(), next_order, sibling_uid));
+    }
+    for block in blocks.iter_mut() {
+        let child_parent_uid = block.uid.clone();
+        if let Some(result) =
+            try_swap_with_next_sibling(&mut block.children, &child_parent_uid, block_uid)
+        {
+            return Some(result);
+        }
+    }
+    None
+}
+
+/// Swap two siblings (same parent) by UID, atomically.
+///
+/// Swaps both their position in the children vec AND their `order` fields,
+/// so the local tree remains consistent (orders sequential, no duplicates).
+/// Returns `true` if the swap succeeded, `false` if either uid was not found
+/// or they don't share a parent.
+pub fn swap_siblings_by_uid_in_days(days: &mut [DailyNote], uid_a: &str, uid_b: &str) -> bool {
+    for day in days.iter_mut() {
+        if try_swap_siblings_by_uid(&mut day.blocks, uid_a, uid_b) {
+            return true;
+        }
+    }
+    false
+}
+
+fn try_swap_siblings_by_uid(blocks: &mut [Block], uid_a: &str, uid_b: &str) -> bool {
+    let pos_a = blocks.iter().position(|b| b.uid == uid_a);
+    let pos_b = blocks.iter().position(|b| b.uid == uid_b);
+    if let (Some(a), Some(b)) = (pos_a, pos_b) {
+        let order_a = blocks[a].order;
+        let order_b = blocks[b].order;
+        blocks[a].order = order_b;
+        blocks[b].order = order_a;
+        blocks.swap(a, b);
+        return true;
+    }
+    for block in blocks.iter_mut() {
+        if try_swap_siblings_by_uid(&mut block.children, uid_a, uid_b) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn move_block_in_days(
     days: &mut [DailyNote],
     block_uid: &str,
