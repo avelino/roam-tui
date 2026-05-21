@@ -22,6 +22,13 @@ fn read_line(buf: &Buffer, y: u16, width: u16) -> String {
         .collect()
 }
 
+fn line_has_cursor(buf: &Buffer, y: u16, width: u16) -> bool {
+    (0..width).any(|x| {
+        let style = buf.cell((x, y)).unwrap().style();
+        style.fg == Some(Color::Black) && style.bg == Some(Color::White)
+    })
+}
+
 fn make_block(uid: &str, text: &str, order: i64) -> Block {
     Block {
         uid: uid.into(),
@@ -602,6 +609,41 @@ fn edit_mode_scroll_tracks_wrapped_cursor_line() {
     let visible_line = read_line(&buf, 0, 18);
     assert!(visible_line.contains("theta"));
     assert!(!visible_line.contains("alpha"));
+}
+
+#[test]
+fn edit_mode_scroll_tracks_cursor_at_end_of_wrapped_text() {
+    let text = "alpha beta gamma delta epsilon zeta eta theta";
+    let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("b1", text, 0)]);
+    let mut buffer = EditBuffer::new(text);
+    buffer.cursor = text.chars().count();
+    let buf = render_widget_editing(&[day], 0, 18, 1, &buffer);
+
+    let visible_line = read_line(&buf, 0, 18);
+    assert!(visible_line.contains("theta"));
+    assert!(!visible_line.contains("alpha"));
+    assert!(line_has_cursor(&buf, 0, 18));
+}
+
+#[test]
+fn empty_edit_block_shows_cursor_row() {
+    let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("b1", "", 0)]);
+    let buffer = EditBuffer::new_empty();
+    let buf = render_widget_editing(&[day], 0, 10, 1, &buffer);
+
+    let visible_line = read_line(&buf, 0, 10);
+    assert!(visible_line.contains('•'));
+    assert!(line_has_cursor(&buf, 0, 10));
+}
+
+#[test]
+fn edit_mode_renders_in_pane_narrower_than_prefix() {
+    let day = make_daily_note("Feb 21", 2026, 2, 21, vec![make_block("b1", "", 0)]);
+    let buffer = EditBuffer::new_empty();
+    let buf = render_widget_editing(&[day], 0, 3, 2, &buffer);
+
+    let visible_line = read_line(&buf, 1, 3);
+    assert!(visible_line.contains('•'));
 }
 
 #[test]
