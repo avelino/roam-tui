@@ -431,7 +431,7 @@ fn render_block_as_markdown(block: &serde_json::Value, depth: usize, output: &mu
     }
 }
 
-#[tool_handler]
+#[tool_handler(router = self.tool_router)]
 impl ServerHandler for RoamMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
