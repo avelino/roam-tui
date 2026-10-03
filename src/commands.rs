@@ -776,7 +776,7 @@ mod tests {
             .unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(parsed["status"], "created");
-        assert!(parsed["uid"].as_str().unwrap().len() > 0);
+        assert!(!parsed["uid"].as_str().unwrap().is_empty());
     }
 
     #[tokio::test]

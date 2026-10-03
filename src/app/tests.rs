@@ -3001,9 +3001,7 @@ fn page_title_cache_updated_on_new_page() {
     // Simulate the cache update logic from the event loop
     if !page_title.is_empty() && !state.page_title_cache.iter().any(|(t, _)| t == &page_title) {
         state.page_title_cache.push((page_title.clone(), page_uid));
-        state
-            .page_title_cache
-            .sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+        state.page_title_cache.sort_by_key(|a| a.0.to_lowercase());
     }
 
     assert!(state.page_title_cache.iter().any(|(t, _)| t == "NewPage"));

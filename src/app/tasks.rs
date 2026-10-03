@@ -252,7 +252,7 @@ pub(super) fn spawn_fetch_page_titles(client: &RoamClient, tx: &mpsc::UnboundedS
                         }
                     }
                 }
-                titles.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+                titles.sort_by_key(|a| a.0.to_lowercase());
                 let _ = tx_clone.send(AppMessage::PageTitlesLoaded(titles));
             }
             Err(e) => {
