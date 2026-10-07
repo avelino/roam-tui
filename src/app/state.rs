@@ -27,6 +27,13 @@ pub enum UndoEntry {
         old_order: i64,
         selected_block: usize,
     },
+    SwapSiblings {
+        block_uid: String,
+        sibling_uid: String,
+        parent_uid: String,
+        block_old_order: i64,
+        selected_block: usize,
+    },
     Batch(Vec<UndoEntry>),
 }
 

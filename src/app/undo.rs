@@ -2,7 +2,8 @@ use crate::api::types::{BlockLocation, BlockRef, BlockUpdate, NewBlock, OrderVal
 
 use super::blocks::{
     find_block_in_days, find_block_parent_info, insert_block_in_days, move_block_in_days,
-    remove_block_from_days, resolve_block_at_index, update_block_text_in_days,
+    remove_block_from_days, resolve_block_at_index, swap_siblings_by_uid_in_days,
+    update_block_text_in_days,
 };
 use super::state::{AppState, UndoEntry};
 
@@ -157,6 +158,42 @@ fn apply_undo_entry(state: &mut AppState, entry: UndoEntry) -> (UndoEntry, Write
                 location: BlockLocation {
                     parent_uid: old_parent_uid,
                     order: OrderValue::Index(old_order),
+                },
+            };
+            (redo, write)
+        }
+        UndoEntry::SwapSiblings {
+            block_uid,
+            sibling_uid,
+            parent_uid,
+            block_old_order,
+            selected_block,
+        } => {
+            let current_selected = state.selected_block;
+            // Swap is involutive — applying it again restores the previous state.
+            swap_siblings_by_uid_in_days(&mut state.days, &block_uid, &sibling_uid);
+            state.selected_block = selected_block;
+            state.cursor_col = 0;
+
+            // After the inverse swap, `block_uid` is back at `block_old_order`.
+            // The redo entry repeats this swap, restoring the post-move state.
+            // The current (pre-swap) order of the block is the sibling's old order,
+            // which after the inverse swap is now held by the sibling.
+            let redo_block_old_order = find_block_parent_info(&state.days, &block_uid)
+                .map(|(_, order)| order)
+                .unwrap_or(block_old_order);
+            let redo = UndoEntry::SwapSiblings {
+                block_uid: block_uid.clone(),
+                sibling_uid,
+                parent_uid: parent_uid.clone(),
+                block_old_order: redo_block_old_order,
+                selected_block: current_selected,
+            };
+            let write = WriteAction::MoveBlock {
+                block: BlockRef { uid: block_uid },
+                location: BlockLocation {
+                    parent_uid,
+                    order: OrderValue::Index(block_old_order),
                 },
             };
             (redo, write)
