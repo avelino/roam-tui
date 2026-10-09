@@ -1,6 +1,6 @@
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{ServerCapabilities, ServerInfo},
+    model::{ServerCapabilities, ServerConfig},
     schemars, tool, tool_handler, tool_router, ServerHandler, ServiceExt,
 };
 use roam_sdk::api::client::RoamClient;
@@ -433,8 +433,8 @@ fn render_block_as_markdown(block: &serde_json::Value, depth: usize, output: &mu
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for RoamMcp {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             "Roam Research MCP server — read and write to your Roam graph via the cloud API",
         )
     }
