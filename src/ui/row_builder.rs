@@ -150,8 +150,11 @@ impl<'a> RowBuilder<'a> {
     fn push_block_editing(&mut self, indent: &str) {
         let edit = self.edit_info.as_ref().unwrap();
         let style = Self::selected_style();
+        let cursor_style = Style::default().fg(Color::Black).bg(Color::White);
         let prefix = format!("{}• ", indent);
         let cont_prefix = format!("{}  ", indent);
+        let first_w = self.max_width.saturating_sub(prefix.chars().count());
+        let cont_w = self.max_width.saturating_sub(cont_prefix.chars().count());
         let buf_text = edit.buffer.to_string();
         let cursor_pos = edit.buffer.cursor;
 
@@ -171,13 +174,9 @@ impl<'a> RowBuilder<'a> {
         }
 
         let edit_start_row = self.rows.len();
+        self.selected_row = edit_start_row;
         for (line_idx, text_line) in text_lines.iter().enumerate() {
-            let lp = if line_idx == 0 {
-                prefix.clone()
-            } else {
-                cont_prefix.clone()
-            };
-            let mut spans = vec![Span::styled(lp, style)];
+            let mut spans = Vec::new();
 
             if line_idx == cursor_line {
                 let line_chars: Vec<char> = text_line.chars().collect();
@@ -189,21 +188,36 @@ impl<'a> RowBuilder<'a> {
                     String::new()
                 };
 
-                spans.push(Span::styled(before, style));
-                spans.push(Span::styled(
-                    cursor_char.to_string(),
-                    Style::default().fg(Color::Black).bg(Color::White),
-                ));
+                if !before.is_empty() {
+                    spans.push(Span::styled(before, style));
+                }
+                spans.push(Span::styled(cursor_char.to_string(), cursor_style));
                 if !after.is_empty() {
                     spans.push(Span::styled(after, style));
                 }
-            } else {
+            } else if !text_line.is_empty() {
                 spans.push(Span::styled(text_line.to_string(), style));
             }
 
-            self.rows.push(Line::from(spans));
+            let wrapped = wrap_spans(spans, if line_idx == 0 { first_w } else { cont_w }, cont_w);
+            for (wrap_idx, wline) in wrapped.into_iter().enumerate() {
+                let mut full_spans = vec![Span::styled(
+                    if line_idx == 0 && wrap_idx == 0 {
+                        prefix.clone()
+                    } else {
+                        cont_prefix.clone()
+                    },
+                    style,
+                )];
+                let cursor_in_row = wline.iter().any(|span| span.style == cursor_style);
+                full_spans.extend(wline);
+                self.rows.push(Line::from(full_spans));
+
+                if cursor_in_row {
+                    self.selected_row = self.rows.len().saturating_sub(1);
+                }
+            }
         }
-        self.selected_row = edit_start_row + cursor_line;
     }
 
     fn push_block_normal(
