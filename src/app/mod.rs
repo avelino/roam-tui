@@ -126,6 +126,86 @@ fn handle_batch_dedent(state: &mut AppState) -> Option<WriteAction> {
     })
 }
 
+fn handle_move_block_up(state: &mut AppState) -> Option<WriteAction> {
+    if state
+        .resolve_linked_ref_item(state.selected_block)
+        .is_some()
+    {
+        return None;
+    }
+    let info =
+        blocks::resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)?;
+    let saved_selected = state.selected_block;
+    let block_old_order = info.order;
+    let (parent_uid, new_order, sibling_uid) =
+        blocks::move_block_up_in_days(&mut state.days, &info.block_uid)?;
+
+    state.redo_stack.clear();
+    if let Some(new_idx) =
+        blocks::find_block_index_by_uid(&state.days, &state.linked_refs, &info.block_uid)
+    {
+        state.selected_block = new_idx;
+        state.cursor_col = 0;
+    }
+    state.undo_stack.push(UndoEntry::SwapSiblings {
+        block_uid: info.block_uid.clone(),
+        sibling_uid,
+        parent_uid: parent_uid.clone(),
+        block_old_order,
+        selected_block: saved_selected,
+    });
+
+    Some(WriteAction::MoveBlock {
+        block: ApiBlockRef {
+            uid: info.block_uid,
+        },
+        location: BlockLocation {
+            parent_uid,
+            order: OrderValue::Index(new_order),
+        },
+    })
+}
+
+fn handle_move_block_down(state: &mut AppState) -> Option<WriteAction> {
+    if state
+        .resolve_linked_ref_item(state.selected_block)
+        .is_some()
+    {
+        return None;
+    }
+    let info =
+        blocks::resolve_block_at_index(&state.days, &state.linked_refs, state.selected_block)?;
+    let saved_selected = state.selected_block;
+    let block_old_order = info.order;
+    let (parent_uid, new_order, sibling_uid) =
+        blocks::move_block_down_in_days(&mut state.days, &info.block_uid)?;
+
+    state.redo_stack.clear();
+    if let Some(new_idx) =
+        blocks::find_block_index_by_uid(&state.days, &state.linked_refs, &info.block_uid)
+    {
+        state.selected_block = new_idx;
+        state.cursor_col = 0;
+    }
+    state.undo_stack.push(UndoEntry::SwapSiblings {
+        block_uid: info.block_uid.clone(),
+        sibling_uid,
+        parent_uid: parent_uid.clone(),
+        block_old_order,
+        selected_block: saved_selected,
+    });
+
+    Some(WriteAction::MoveBlock {
+        block: ApiBlockRef {
+            uid: info.block_uid,
+        },
+        location: BlockLocation {
+            parent_uid,
+            order: OrderValue::Index(new_order),
+        },
+    })
+}
+
 fn dispatch_load_request(
     request: LoadRequest,
     client: &RoamClient,
@@ -179,6 +259,14 @@ fn handle_normal_key(
             }
         } else if action == &Action::Unindent && state.selection.is_multi() {
             if let Some(write_action) = handle_batch_dedent(state) {
+                spawn_write(client, write_action, tx);
+            }
+        } else if action == &Action::MoveBlockUp {
+            if let Some(write_action) = handle_move_block_up(state) {
+                spawn_write(client, write_action, tx);
+            }
+        } else if action == &Action::MoveBlockDown {
+            if let Some(write_action) = handle_move_block_down(state) {
                 spawn_write(client, write_action, tx);
             }
         } else if let Some(req) = handle_action(state, action) {

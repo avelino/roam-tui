@@ -9,6 +9,7 @@
 - Edit blocks with optimistic updates (changes apply instantly, sync in background)
 - Undo/redo for text edits, block creation, deletion, and moves
 - Indent/dedent blocks with Tab/Shift+Tab
+- Reorder blocks among siblings with Alt+Up/Alt+Down
 - Block references `((uid))` resolve inline
 - Linked references section per day/page
 - Syntax highlighting for fenced code blocks (14 languages)

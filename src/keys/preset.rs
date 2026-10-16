@@ -20,6 +20,8 @@ pub enum Action {
     QuickSwitcher,
     Indent,
     Unindent,
+    MoveBlockUp,
+    MoveBlockDown,
     EditBlock,
     CreateBlock,
     Undo,
@@ -52,6 +54,8 @@ impl Action {
             "quick_switcher" => Some(Self::QuickSwitcher),
             "indent" => Some(Self::Indent),
             "unindent" => Some(Self::Unindent),
+            "move_block_up" => Some(Self::MoveBlockUp),
+            "move_block_down" => Some(Self::MoveBlockDown),
             "edit_block" => Some(Self::EditBlock),
             "create_block" => Some(Self::CreateBlock),
             "undo" => Some(Self::Undo),
@@ -85,6 +89,8 @@ impl Action {
             Self::QuickSwitcher => "switcher",
             Self::Indent => "indent",
             Self::Unindent => "unindent",
+            Self::MoveBlockUp => "move ↑",
+            Self::MoveBlockDown => "move ↓",
             Self::EditBlock => "edit",
             Self::CreateBlock => "new block",
             Self::Undo => "undo",
@@ -120,6 +126,10 @@ fn ctrl_shift(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::CONTROL | KeyModifiers::SHIFT)
 }
 
+fn alt_shift(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::ALT | KeyModifiers::SHIFT)
+}
+
 pub fn vim_preset() -> HashMap<KeyEvent, Action> {
     let mut m = HashMap::new();
     m.insert(key(KeyCode::Char('k')), Action::MoveUp);
@@ -137,6 +147,8 @@ pub fn vim_preset() -> HashMap<KeyEvent, Action> {
     m.insert(ctrl(KeyCode::Char('k')), Action::QuickSwitcher);
     m.insert(key(KeyCode::Tab), Action::Indent);
     m.insert(shift(KeyCode::BackTab), Action::Unindent);
+    m.insert(alt(KeyCode::Up), Action::MoveBlockUp);
+    m.insert(alt(KeyCode::Down), Action::MoveBlockDown);
     m.insert(key(KeyCode::Char('i')), Action::EditBlock);
     m.insert(key(KeyCode::Char('o')), Action::CreateBlock);
     m.insert(key(KeyCode::Char('u')), Action::Undo);
@@ -174,6 +186,8 @@ pub fn emacs_preset() -> HashMap<KeyEvent, Action> {
     m.insert(ctrl(KeyCode::Char('h')), Action::Help);
     m.insert(key(KeyCode::Tab), Action::Indent);
     m.insert(shift(KeyCode::BackTab), Action::Unindent);
+    m.insert(alt(KeyCode::Up), Action::MoveBlockUp);
+    m.insert(alt(KeyCode::Down), Action::MoveBlockDown);
     m.insert(key(KeyCode::Enter), Action::EditBlock);
     m.insert(alt(KeyCode::Enter), Action::CreateBlock);
     m.insert(ctrl(KeyCode::Char('/')), Action::Undo);
@@ -215,6 +229,8 @@ pub fn vscode_preset() -> HashMap<KeyEvent, Action> {
     m.insert(ctrl(KeyCode::Char('d')), Action::GoDaily);
     m.insert(key(KeyCode::Tab), Action::Indent);
     m.insert(shift(KeyCode::BackTab), Action::Unindent);
+    m.insert(alt_shift(KeyCode::Up), Action::MoveBlockUp);
+    m.insert(alt_shift(KeyCode::Down), Action::MoveBlockDown);
     m.insert(key(KeyCode::Enter), Action::EditBlock);
     m.insert(ctrl(KeyCode::Enter), Action::CreateBlock);
     m.insert(ctrl(KeyCode::Char('z')), Action::Undo);
